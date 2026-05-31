@@ -40,29 +40,41 @@ function getTextContent(message: AssistantMessage): string {
 // ── Custom editor (border color by input prefix) ──
 
 class PlanModeEditor extends CustomEditor {
-  private defaultBorderColor: ((str: string) => string) | null = null;
   private planBorderColor: (str: string) => string;
   private execBorderColor: (str: string) => string;
+  /** Native border color set by the framework (thinking level, bash mode) */
+  private _storedBorderColor!: (str: string) => string;
+  /** Mode border color override (null = use stored native color) */
+  private _modeBorderColor: ((str: string) => string) | null = null;
 
   constructor(tui: any, theme: any, keybindings: any) {
     super(tui, theme, keybindings);
     this.planBorderColor = (s) => `\x1b[38;2;245;167;66m${s}\x1b[0m`;
     this.execBorderColor = (s) => `\x1b[38;2;92;156;245m${s}\x1b[0m`;
+
+    // Save initial native border color from theme
+    this._storedBorderColor = theme.borderColor;
+
+    // Intercept borderColor property to track framework changes
+    // (updateEditorBorderColor sets this.editor.borderColor on thinking/bash mode changes)
+    Object.defineProperty(this, "borderColor", {
+      get: () => this._modeBorderColor ?? this._storedBorderColor,
+      set: (fn) => { this._storedBorderColor = fn; },
+      configurable: true,
+      enumerable: true,
+    });
   }
 
   render(width: number): string[] {
     const text = this.getText();
 
-    if (!this.defaultBorderColor) {
-      this.defaultBorderColor = this.borderColor;
-    }
-
     if (text.startsWith("??") || text.startsWith("?")) {
-      this.borderColor = this.planBorderColor;
+      this._modeBorderColor = this.planBorderColor;
     } else if (text.startsWith("$")) {
-      this.borderColor = this.execBorderColor;
+      this._modeBorderColor = this.execBorderColor;
     } else {
-      this.borderColor = this.defaultBorderColor;
+      // Fall back to native border color managed by the framework
+      this._modeBorderColor = null;
     }
 
     return super.render(width);
