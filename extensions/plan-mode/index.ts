@@ -22,7 +22,7 @@ import { extractPlanItems, markCompletedSteps, type TodoItem } from "./plan.ts";
 // ── Constants ──
 
 /** Read-only tools available in planning mode */
-const PLANNING_TOOLS = ["read", "bash", "grep", "find", "ls", "questionnaire"];
+const PLANNING_TOOLS = ["read", "grep", "find", "ls", "questionnaire"];
 
 // ── Helpers ──
 
@@ -148,7 +148,6 @@ Your job:
 
 Rules:
 - DO NOT edit any files
-- DO NOT execute non-read-only bash commands
 
 Example plan format:
 Plan:
@@ -173,8 +172,7 @@ Your job:
 - Think about adjustments and produce an updated numbered plan under a "Plan:" header
 
 Rules:
-- DO NOT edit any files
-- DO NOT execute non-read-only bash commands`,
+- DO NOT edit any files`,
           display: false,
         },
       };
