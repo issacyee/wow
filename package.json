@@ -4,7 +4,11 @@
   "description": "My foundational pi package — universal tools for daily AI workflow",
   "keywords": ["pi-package", "workflow", "plan-mode"],
   "pi": {
-    "extensions": ["./extensions/plan-mode/index.ts", "./extensions/git-commit/index.ts"],
+    "extensions": [
+      "./extensions/plan-mode/index.ts",
+      "./extensions/git-commit/index.ts",
+      "./extensions/exit-command/index.ts"
+    ],
     "skills": ["./skills"],
     "prompts": ["./prompts"]
   }
