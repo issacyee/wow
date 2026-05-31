@@ -1,0 +1,11 @@
+{
+  "name": "pi.zero",
+  "version": "0.1.0",
+  "description": "My foundational pi package — universal tools for daily AI workflow",
+  "keywords": ["pi-package", "workflow", "plan-mode"],
+  "pi": {
+    "extensions": ["./extensions/plan-mode/index.ts"],
+    "skills": ["./skills"],
+    "prompts": ["./prompts"]
+  }
+}
