@@ -113,9 +113,9 @@ export default function planModeExtension(pi: ExtensionAPI): void {
     if (event.text.startsWith("$")) {
       const text = event.text.slice(1).trim();
       if (!lastTurnHadPlan && todoItems.length === 0) {
-        ctx.ui.notify("当前没有可执行的计划", "info");
+        ctx.ui.notify("No active plan to execute", "info");
         turnMode = null;
-        return { action: "continue" };
+        return { action: "handled" };
       }
       turnMode = "executing";
       hasAdjustment = text.length > 0;
@@ -233,7 +233,7 @@ Example: "...created the user model. [DONE:1]"`,
     if (event.toolName === "edit" || event.toolName === "write") {
       return {
         block: true,
-        reason: `计划模式: ${event.toolName} 被禁用。先让 AI 出计划，然后用 $ 执行。`,
+        reason: `Plan mode: ${event.toolName} is disabled. Create a plan first with ?, then execute with $.`,
       };
     }
 
@@ -242,7 +242,8 @@ Example: "...created the user model. [DONE:1]"`,
       if (!isSafeCommand(command)) {
         return {
           block: true,
-          reason: `计划模式: 危险命令被阻断。只允许只读命令。\n被阻断的命令: ${command}`,
+          reason: `Plan mode: dangerous command blocked. Only read-only commands are allowed.
+Blocked command: ${command}`,
         };
       }
     }
