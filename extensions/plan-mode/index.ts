@@ -152,20 +152,27 @@ export default function planModeExtension(pi: ExtensionAPI): void {
           content: `[PLAN MODE - NEW PLAN]
 
 You are creating a completely new plan.
-Your job:
+
+Guidelines:
 - Use read-only tools (read, grep, find, ls) to explore the codebase
 - Ask clarifying questions if needed
 - Think about the best approach
-- Produce a numbered plan under a "Plan:" header
+
+Output the plan in the following format:
+
+<plan-mode>
+
+## Plan: {short title describing the goal}
+
+1. **Action** — brief description, \`target file\`.
+2. **Action** — brief description, \`target file\`.
+3. ...
+
+</plan-mode>
 
 Rules:
 - DO NOT edit any files
-
-Example plan format:
-Plan:
-1. First step description
-2. Second step description
-3. Third step description`,
+- Each step should have a clear action verb and target`,
           display: false,
         },
       };
@@ -177,14 +184,27 @@ Plan:
           customType: "plan-mode-context",
           content: `[PLAN MODE - CONTINUE PLAN]
 
-Continue the previous plan discussion.
-Your job:
-- Review the existing plan (if any) and adjust it based on new input
+Review the existing plan and adjust based on new input.
+
+Guidelines:
 - Use read-only tools (read, grep, find, ls) to explore if needed
-- Think about adjustments and produce an updated numbered plan under a "Plan:" header
+- Output the FULL updated plan, not just the changes
+
+Format (output the complete plan):
+
+<plan-mode>
+
+## Plan: {short title}
+
+1. **Action** — description, \`target file\`.
+2. **Action** — description, \`target file\`.
+3. ...
+
+</plan-mode>
 
 Rules:
-- DO NOT edit any files`,
+- DO NOT edit any files
+- Always wrap the FULL plan in <plan-mode> tags`,
           display: false,
         },
       };
@@ -276,17 +296,20 @@ Blocked command: ${command}`,
   // ──────────────────────────────────────
 
   pi.on("agent_end", async (event) => {
-    const lastAssistant = [...event.messages].reverse().find(isAssistantMessage);
-    if (!lastAssistant) {
-      turnMode = null;
-      hasAdjustment = false;
-      return;
-    }
-
-    const text = getTextContent(lastAssistant);
-
     if (turnMode === "plan-new" || turnMode === "plan-continue") {
-      const extracted = extractPlanItems(text);
+      // Search assistant messages in REVERSE for the most recent plan.
+      // The AI may output a tentative plan early (before tool calls) then refine
+      // it later — the last occurrence is the latest version the user wants to execute.
+      // But it may also put the plan only in an early message with just a summary
+      // at the end, so we can't only check the very last message either.
+      let extracted: TodoItem[] = [];
+      for (let i = event.messages.length - 1; i >= 0; i--) {
+        const msg = event.messages[i];
+        if (!isAssistantMessage(msg)) continue;
+        const text = getTextContent(msg);
+        extracted = extractPlanItems(text);
+        if (extracted.length > 0) break;
+      }
       if (extracted.length > 0) {
         todoItems = extracted;
         lastTurnHadPlan = true;

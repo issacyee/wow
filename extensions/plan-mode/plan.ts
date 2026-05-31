@@ -59,11 +59,16 @@ export function cleanStepText(text: string): string {
 export function extractPlanItems(message: string): TodoItem[] {
   const items: TodoItem[] = [];
 
-  // Match Plan: header (supports **Plan:**, Plan:, etc.)
-  const headerMatch = message.match(/\*{0,2}Plan:?\*{0,2}\s*\n/i);
+  // Require <plan-mode> envelope (new format, high confidence detection)
+  const envelopeMatch = message.match(/<plan-mode>[\s\S]*?<\/plan-mode>/i);
+  if (!envelopeMatch) return items;
+  const content = envelopeMatch[0];
+
+  // Match plan header: supports ## Plan: Title, **Plan:**, Plan:, etc.
+  const headerMatch = content.match(/#{0,2}\s*\*{0,2}Plan:?\*{0,2}[^\n]*\n/i);
   if (!headerMatch) return items;
 
-  const planSection = message.slice(message.indexOf(headerMatch[0]) + headerMatch[0].length);
+  const planSection = content.slice(content.indexOf(headerMatch[0]) + headerMatch[0].length);
   const numberedPattern = /^\s*(\d+)[.)]\s+\*{0,2}([^*\n]+)/gm;
 
   for (const match of planSection.matchAll(numberedPattern)) {
