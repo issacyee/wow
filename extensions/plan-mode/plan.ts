@@ -16,6 +16,12 @@ const LOCALE_PREFIX_PATTERNS: Record<string, RegExp[]> = {
   zh: [/^让我们/, /^我们先/, /^需要/],
 };
 
+/** Fixed conversational marker — a single line before the actionable step list */
+export const ACTION_MARKER = "Ready to go?";
+
+/** Regex matching the marker line followed by the numbered step list */
+const ACTION_MARKER_RE = /^Ready to go\?\n([\s\S]*)/im;
+
 /** Detect primary language subtag from OS locale */
 export function detectPrimaryLocale(): string {
   try {
@@ -56,11 +62,30 @@ export function cleanStepText(text: string): string {
 }
 
 /**
+ * Extract plan items following the natural action marker line.
+ * Returns items if found and non-empty, otherwise undefined (signal to fall back).
+ */
+function extractMarkedPlanItems(message: string): TodoItem[] | undefined {
+  const match = message.match(ACTION_MARKER_RE);
+  if (!match) return undefined;
+
+  const items = extractNumberedList(match[1]);
+  return items.length > 0 ? items : undefined;
+}
+
+/**
  * Extract numbered steps from a plan section.
+ * Priority:
+ *   1. Natural action marker line ("Ready to go?") — most reliable
+ *   2. Text-based \`## <word>:\` header parsing (fallback)
  * Locale-agnostic: matches any \`## <word>:\` header (Plan:, 计划:, プラン:, etc.).
  */
 export function extractPlanItems(message: string): TodoItem[] {
-  // Find plan header: ## <word>: <title>
+  // 1. Try natural action marker first
+  const marked = extractMarkedPlanItems(message);
+  if (marked) return marked;
+
+  // 2. Fall back to text-based plan header parsing
   const planMatch = message.match(/^##\s+[^:]+:\s*[^\n]*\n([\s\S]*?)(?=\n---\s*\n|$)/m);
   if (!planMatch) return [];
 

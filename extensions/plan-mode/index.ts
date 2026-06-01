@@ -21,7 +21,7 @@ import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { AssistantMessage, TextContent } from "@earendil-works/pi-ai";
 
 import { isSafeCommand } from "./safe.ts";
-import { extractPlanItems, markCompletedSteps, detectPrimaryLocale, type TodoItem } from "./plan.ts";
+import { extractPlanItems, markCompletedSteps, detectPrimaryLocale, ACTION_MARKER, type TodoItem } from "./plan.ts";
 
 // ── Constants ──
 
@@ -137,6 +137,18 @@ ${t.hereIsMyPlan}
 ### ${t.verification}
 {${t.verificationDesc}}
 
+After the human-readable plan above, add a concise action summary. Start with a line:
+
+${ACTION_MARKER}
+
+Then list each numbered step (plain text, no bold/backticks):
+
+1. Do this first
+2. Then do this
+3. Finally do this
+
+This action summary is REQUIRED — the system needs it to reliably move from planning to execution.
+
 Rules:
 - DO NOT edit any files
 - Only read-only tools allowed
@@ -182,6 +194,18 @@ ${t.hereIsMyPlan}
 
 ### ${t.verification}
 {${t.verificationDesc}}
+
+After the human-readable plan above, add a concise action summary. Start with a line:
+
+${ACTION_MARKER}
+
+Then list each numbered step (plain text, no bold/backticks):
+
+1. Do this first
+2. Then do this
+3. Finally do this
+
+This action summary is REQUIRED — the system needs it to reliably move from planning to execution.
 
 Rules:
 - DO NOT edit any files
@@ -282,6 +306,7 @@ let turnMode: TurnMode = null;
 let todoItems: TodoItem[] = [];
 let lastTurnHadPlan = false;
 let hasAdjustment = false;
+let planFullText = "";
 
 // ── Extension entry ──
 
@@ -303,6 +328,7 @@ export default function planModeExtension(pi: ExtensionAPI): void {
         turnMode = "plan-new";
         pi.setActiveTools(PLANNING_TOOLS);
         todoItems = [];
+        planFullText = "";
       }
       return { action: "transform", text };
     }
@@ -311,6 +337,7 @@ export default function planModeExtension(pi: ExtensionAPI): void {
       const text = event.text.slice(1).trim();
       turnMode = "plan-new";
       todoItems = [];
+      planFullText = "";
       pi.setActiveTools(PLANNING_TOOLS);
       return { action: "transform", text };
     }
@@ -365,6 +392,10 @@ export default function planModeExtension(pi: ExtensionAPI): void {
           ? remaining.map((t) => `${t.step}. ${t.text}`).join("\n")
           : "(no extracted plan items, use best judgment)";
 
+      const planSection = planFullText
+        ? `\n---\nFull plan context:\n${planFullText}\n---`
+        : "";
+
       if (hasAdjustment) {
         return {
           message: {
@@ -372,7 +403,7 @@ export default function planModeExtension(pi: ExtensionAPI): void {
             content: `[EXECUTING PLAN - WITH ADJUSTMENTS]
 
 The user has provided additional input.
-First review and adjust the existing plan based on this input, then execute the updated steps.
+First review and adjust the existing plan based on this input, then execute the updated steps.${planSection}
 
 Current remaining steps:
 ${steps}
@@ -389,7 +420,7 @@ After completing a step, include [DONE:n] in your response.`,
           content: `[EXECUTING PLAN]
 
 Remaining steps:
-${steps}
+${steps}${planSection}
 
 Execute each step in order using full tool access.
 After completing a step, include [DONE:n] in your response.
@@ -451,18 +482,24 @@ Blocked command: ${command}`,
       // But it may also put the plan only in an early message with just a summary
       // at the end, so we can't only check the very last message either.
       let extracted: TodoItem[] = [];
+      let extractedText = "";
       for (let i = event.messages.length - 1; i >= 0; i--) {
         const msg = event.messages[i];
         if (!isAssistantMessage(msg)) continue;
         const text = getTextContent(msg);
         extracted = extractPlanItems(text);
-        if (extracted.length > 0) break;
+        if (extracted.length > 0) {
+          extractedText = text;
+          break;
+        }
       }
       if (extracted.length > 0) {
         todoItems = extracted;
+        planFullText = extractedText;
         lastTurnHadPlan = true;
       } else {
         lastTurnHadPlan = false;
+        planFullText = "";
       }
     }
 
@@ -476,6 +513,7 @@ Blocked command: ${command}`,
           { triggerTurn: false },
         );
         todoItems = [];
+        planFullText = "";
         lastTurnHadPlan = false;
       }
     }
