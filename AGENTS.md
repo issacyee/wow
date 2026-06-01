@@ -9,20 +9,30 @@ pi.zero/
 ├── AGENTS.md               # This file — project context
 ├── package.json             # pi package manifest
 ├── extensions/
-│   └── plan-mode/           # ?/??/$ plan mode extension
-│       ├── index.ts         # Entry: prefix detection, context injection, tool interception
-│       ├── plan.ts          # Plan item extraction, [DONE:n] tracking, text cleanup
-│       └── safe.ts          # Bash safety check in planning mode
+│   ├── locale/              # OS language detection (injects language instruction via before_agent_start)
+│   │   └── index.ts         # Detects locale → injects language directive into each AI turn
+│   ├── plan-mode/           # ?/??/$ plan mode extension
+│   │   ├── index.ts         # Entry: prefix detection, context injection, tool interception
+│   │   ├── plan.ts          # Plan item extraction, [DONE:n] tracking, text cleanup
+│   │   └── safe.ts          # Bash safety check in planning mode
+│   ├── git-commit/          # /git-commit — LLM-generated Conventional Commits
+│   │   └── index.ts         # Standalone LLM call, parses output, executes commit
+│   └── exit-command/        # /exit alias for /quit
+│       └── index.ts         # Registers /exit → ctx.shutdown()
 ├── prompts/                 # Prompt templates (optional)
 └── skills/                  # Skills (optional)
 ```
 
 ## Development Conventions
 
-### Language Convention
+### Technical Content Convention
 
-- **Dialogue & output**: User-AI communication and AI responses use the OS language (dynamically determined by querying the OS locale).
-- **Everything else**: Code, comments, config, documentation (including this file), commit messages, and technical content use English.
+Code, comments, config, documentation (including this file), commit messages,
+and other technical content use English.
+
+> AI response language is handled automatically by the `locale` extension —
+> it detects the OS language at runtime and injects a language instruction
+> into each agent turn via `before_agent_start`.
 
 ### Technical Conventions
 

@@ -31,6 +31,24 @@ A stateless planning workflow that prompts the AI to produce a plan before execu
 - **Chinese IME friendly**: Full-width `？` `！` `￥` typed at the start of the editor
   are automatically converted to `?` `!` `$` — no need to switch input methods
 
+### Locale — Automatic Language Detection
+
+Detects the OS language via `Intl.DateTimeFormat` at runtime and injects a language
+instruction into every AI turn via `before_agent_start`. The AI always responds in
+the user's native language without needing manual prompting.
+
+### Git Commit — `/git-commit`
+
+Generates a terse [Conventional Commits](https://www.conventionalcommits.org/) message
+from staged changes via a direct LLM call (isolated from main session context), then
+executes the commit. Uses "caveman-commit" style — ultra-compressed, subject ≤50 chars,
+body only when the "why" isn't obvious. No AI attribution, no emoji, no fluff.
+
+### Exit — `/exit`
+
+A simple alias for the built-in `/quit` command. `ctx.shutdown()` is called immediately
+on `/exit`, providing a more intuitive command name for shutting down pi.
+
 ## Development
 
 ```bash
@@ -51,10 +69,16 @@ pi.zero/
 ├── LICENSE                  # MIT License
 ├── package.json             # Pi package manifest
 ├── extensions/
-│   └── plan-mode/           # ?/??/$ plan mode extension
-│       ├── index.ts         # Entry: prefix detection, context injection, tool interception
-│       ├── plan.ts          # Plan item extraction, [DONE:n] tracking, text cleaning
-│       └── safe.ts          # Bash safety check in planning mode
+│   ├── locale/              # OS language detection (injects language instruction via before_agent_start)
+│   │   └── index.ts         # Detects locale → injects language directive into each AI turn
+│   ├── plan-mode/           # ?/??/$ plan mode extension
+│   │   ├── index.ts         # Entry: prefix detection, context injection, tool interception
+│   │   ├── plan.ts          # Plan item extraction, [DONE:n] tracking, text cleaning
+│   │   └── safe.ts          # Bash safety check in planning mode
+│   ├── git-commit/          # /git-commit — LLM-generated Conventional Commits
+│   │   └── index.ts         # Standalone LLM call, parses output, executes commit
+│   └── exit-command/        # /exit alias for /quit
+│       └── index.ts         # Registers /exit → ctx.shutdown()
 ├── prompts/                 # Prompt templates (optional)
 └── skills/                  # Skills (optional)
 ```

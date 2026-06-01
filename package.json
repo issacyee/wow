@@ -5,6 +5,7 @@
   "keywords": ["pi-package", "workflow", "plan-mode"],
   "pi": {
     "extensions": [
+      "./extensions/locale/index.ts",
       "./extensions/plan-mode/index.ts",
       "./extensions/git-commit/index.ts",
       "./extensions/exit-command/index.ts"
