@@ -8,7 +8,7 @@
       "./extensions/locale/index.ts",
       "./extensions/plan-mode/index.ts",
       "./extensions/git-commit/index.ts",
-      "./extensions/exit-command/index.ts"
+      "./extensions/command-mappings/index.ts"
     ],
     "skills": ["./skills"],
     "prompts": ["./prompts"]
