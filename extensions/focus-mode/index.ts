@@ -24,7 +24,9 @@ import {
   createLsTool,
 } from "@earendil-works/pi-coding-agent";
 import { Text, Container } from "@earendil-works/pi-tui";
+import { hyperlink } from "@earendil-works/pi-tui";
 import { homedir } from "node:os";
+import { resolve } from "node:path";
 
 // ── Helpers ──
 
@@ -38,6 +40,19 @@ function shortenPath(path: string): string {
     return path.slice(0, 24) + "..." + path.slice(-28);
   }
   return path;
+}
+
+/**
+ * Resolve a path relative to cwd and wrap it in an OSC 8 file:// hyperlink.
+ * Falls back to plain text if the path cannot be resolved.
+ */
+function linkPath(path: string, cwd: string): string {
+  try {
+    const abs = resolve(cwd, path);
+    return hyperlink(shortenPath(path), `file://${abs}`);
+  } catch {
+    return shortenPath(path);
+  }
 }
 
 /** Truncate a command string to a reasonable display length */
@@ -103,8 +118,9 @@ export default function (pi: ExtensionAPI): void {
       const tools = getTools(ctx.cwd);
       return tools.read.execute(toolCallId, params, signal, onUpdate);
     },
-    renderCall(args, theme, _context) {
-      const path = shortenPath(args.path || "");
+    renderCall(args, theme, context) {
+      const cwd = context?.cwd ?? process.cwd();
+      const path = linkPath(args.path || "", cwd);
       let text = `read ${path}`;
       if (args.offset !== undefined) {
         const start = args.offset;
@@ -153,8 +169,9 @@ export default function (pi: ExtensionAPI): void {
       const tools = getTools(ctx.cwd);
       return tools.edit.execute(toolCallId, params, signal, onUpdate);
     },
-    renderCall(args, theme, _context) {
-      const path = shortenPath(args.path || "");
+    renderCall(args, theme, context) {
+      const cwd = context?.cwd ?? process.cwd();
+      const path = linkPath(args.path || "", cwd);
       const editCount =
         args.edits && Array.isArray(args.edits) ? args.edits.length : 1;
       const countInfo = editCount > 1 ? ` (${editCount} edits)` : "";
@@ -178,8 +195,9 @@ export default function (pi: ExtensionAPI): void {
       const tools = getTools(ctx.cwd);
       return tools.write.execute(toolCallId, params, signal, onUpdate);
     },
-    renderCall(args, theme, _context) {
-      const path = shortenPath(args.path || "");
+    renderCall(args, theme, context) {
+      const cwd = context?.cwd ?? process.cwd();
+      const path = linkPath(args.path || "", cwd);
       return new Text(theme.fg("dim", `write ${path}`), 1, 0);
     },
     renderResult(_result, _options, _theme, _context) {
@@ -200,13 +218,14 @@ export default function (pi: ExtensionAPI): void {
       const tools = getTools(ctx.cwd);
       return tools.grep.execute(toolCallId, params, signal, onUpdate);
     },
-    renderCall(args, theme, _context) {
+    renderCall(args, theme, context) {
+      const cwd = context?.cwd ?? process.cwd();
       const pattern = args.pattern || "";
       const displayPattern =
         pattern.length > 40 ? pattern.slice(0, 37) + "..." : pattern;
       let text = `grep /${displayPattern}/`;
       if (args.path) {
-        text += ` in ${shortenPath(args.path)}`;
+        text += ` in ${linkPath(args.path, cwd)}`;
       }
       return new Text(theme.fg("dim", text), 1, 0);
     },
@@ -228,13 +247,14 @@ export default function (pi: ExtensionAPI): void {
       const tools = getTools(ctx.cwd);
       return tools.find.execute(toolCallId, params, signal, onUpdate);
     },
-    renderCall(args, theme, _context) {
+    renderCall(args, theme, context) {
+      const cwd = context?.cwd ?? process.cwd();
       const pattern = args.pattern || "";
       const displayPattern =
         pattern.length > 45 ? pattern.slice(0, 42) + "..." : pattern;
       let text = `find ${displayPattern}`;
       if (args.path && args.path !== ".") {
-        text += ` in ${shortenPath(args.path)}`;
+        text += ` in ${linkPath(args.path, cwd)}`;
       }
       return new Text(theme.fg("dim", text), 1, 0);
     },
@@ -256,8 +276,9 @@ export default function (pi: ExtensionAPI): void {
       const tools = getTools(ctx.cwd);
       return tools.ls.execute(toolCallId, params, signal, onUpdate);
     },
-    renderCall(args, theme, _context) {
-      const path = shortenPath(args.path || ".");
+    renderCall(args, theme, context) {
+      const cwd = context?.cwd ?? process.cwd();
+      const path = args.path && args.path !== "." ? linkPath(args.path, cwd) : ".";
       return new Text(theme.fg("dim", `ls ${path}`), 1, 0);
     },
     renderResult(_result, _options, _theme, _context) {

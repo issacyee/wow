@@ -60,6 +60,10 @@ Overrides all 7 built-in tools (read, bash, edit, write, grep, find, ls) to repl
 default green-background Box with a single dim-text line per tool call. Tool output is
 hidden entirely. Multiple consecutive tool calls appear flush together with no spacing.
 Paths are shortened (`~/` for home, truncation for long paths), commands are collapsed.
+File paths are rendered as clickable OSC 8 `file://` hyperlinks in supported terminals.
+
+Custom tools can reuse the same dim rendering via `renderer.ts` exports
+(`createFocusRenderCall`, `focusRenderResult`).
 
 | Before (default) | After (focus mode) |
 |------------------|-------------------|
@@ -71,6 +75,28 @@ Paths are shortened (`~/` for home, truncation for long paths), commands are col
 - Load via `package.json` (enabled automatically)
 - Use `Ctrl+O` to fold/expand (results remain hidden with this override)
 - Use `Ctrl+T` to hide thinking blocks (in combination with `hideThinkingBlock` setting)
+
+### WebFetch — Fetch Web Content
+
+Fetches content from a URL and converts to the requested format (markdown, text, or html).
+Built on Node.js native `fetch` — zero external dependencies. HTML conversion uses inline
+regex for headings, lists, links, emphasis, code blocks, and tables.
+
+**Features:**
+- User-Agent spoofing and Accept header negotiation for best content type
+- Cloudflare 403 bot-detection retry with honest UA fallback
+- 5MB response size limit, configurable timeout (default 30s, max 120s)
+- Raster image detection with base64 encoding
+- URL parameters rendered as clickable hyperlinks in supported terminals
+- Available in plan-mode's read-only tool set (`?` phase)
+
+**Parameters:**
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `url` | (required) | The URL to fetch content from |
+| `format` | `"markdown"` | Output format: `markdown`, `text`, or `html` |
+| `timeout` | 30 | Timeout in seconds (max 120) |
 
 ## Development
 
@@ -104,7 +130,10 @@ pi.zero/
 │   ├── command-mappings/    # Generic declarative command alias registry
 │   │   └── index.ts         # Define command aliases (/exit, etc.) declaratively
 │   └── focus-mode/          # Minimal, unobtrusive tool rendering
-│       └── index.ts         # Overrides 7 built-in tools with dim single-line rendering
+│       ├── index.ts         # Overrides 7 built-in tools with dim single-line rendering
+│       └── renderer.ts      # Shared dim-style rendering utilities for custom tools
+│   └── webfetch/            # Fetch web content and convert to markdown/text/html
+│       └── index.ts         # Zero-dep webfetch tool using native fetch + regex HTML conversion
 ├── prompts/                 # Prompt templates (reserved, currently empty)
 └── skills/                  # Skills (reserved, currently empty)
 ```

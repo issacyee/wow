@@ -21,8 +21,11 @@ pi.zero/
 │   │   └── index.ts         # Standalone LLM call, parses output, executes commit via temp file
 │   ├── command-mappings/    # Generic declarative command alias registry
 │   │   └── index.ts         # Define command aliases (/exit, etc.) declaratively
-│   └── focus-mode/          # Minimal, unobtrusive tool rendering
-│       └── index.ts         # Overrides 7 built-in tools with dim single-line rendering
+│   ├── focus-mode/          # Minimal, unobtrusive tool rendering
+│   │   ├── index.ts         # Overrides 7 built-in tools with dim single-line rendering
+│   │   └── renderer.ts      # Shared dim-style rendering utilities (focusRenderCall, focusRenderResult)
+│   └── webfetch/            # Fetch web content and convert to markdown/text/html
+│       └── index.ts         # Zero-dep webfetch tool using native fetch + regex HTML conversion
 ├── prompts/                 # Prompt templates (reserved, currently empty)
 └── skills/                  # Skills (reserved, currently empty)
 ```
@@ -70,7 +73,7 @@ A multi-phase planning workflow triggered by `?`/`??`/`$` input prefixes.
 - `ACTION_MARKER` (`"Ready to go?"`) is the stable bridge between plan mode and execution mode — detected in reverse-scanned assistant messages at `agent_end`
 - `[DONE:n]` markers in AI responses are tracked via `markCompletedSteps()` to show progress during `$` execution
 - Plan prompts are localized (zh/en) via `PLAN_LOCALES` and `getPlanLocale()`, detecting locale from `detectPrimaryLocale()` in `plan.ts`
-- Tool restriction in planning mode: only read-only tools allowed; `edit`/`write` blocked, bash filtered through `safe.ts` pattern list
+- Tool restriction in planning mode: only read-only tools allowed (read, grep, find, ls, webfetch); `edit`/`write` blocked, bash filtered through `safe.ts` pattern list
 - Editor border colors: orange (`#f5a742`) for `?`/`??`, blue (`#5c9cf5`) for `$`
 - State is module-level (`turnMode`, `todoItems`, `lastTurnHadPlan`, `planFullText`) — per-session, reset on `agent_end`
 
@@ -85,6 +88,14 @@ Declarative array (`COMMAND_MAPPINGS`) of `{ name, description, handler }` objec
 ### focus-mode
 
 Overrides all 7 built-in tools (read, bash, edit, write, grep, find, ls) using `createXxxTool()` factory functions from the SDK. Each overridden tool uses `renderShell: "self"` with custom `renderCall` (single dim-text line) and empty `renderResult`. Tool sets are cached per cwd via `toolCache` map.
+
+File paths are rendered as OSC 8 `file://` hyperlinks (clickable in supported terminals) via the `hyperlink()` utility from `@earendil-works/pi-tui`. The shared `renderer.ts` module exports `createFocusRenderCall()` and `focusRenderResult()` for custom tools to reuse the same dim rendering style.
+
+### webfetch
+
+Fetches content from a URL and converts to the requested format (markdown, text, or html). Uses Node.js native `fetch` — zero external dependencies. HTML conversion is done with inline regex: `convertHTMLToMarkdown()` handles headings, lists, links, emphasis, code blocks, and tables; `extractTextFromHTML()` strips tags and script/style content.
+
+Features: User-Agent spoofing, Accept header negotiation, Cloudflare 403 retry, 5MB response size limit, timeout control (default 30s, max 120s), raster image base64 detection. Uses `createFocusRenderCall("webfetch")` from the shared renderer module for consistent dim rendering with clickable URL hyperlinks.
 
 ## Plan Mode Reference
 

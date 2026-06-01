@@ -26,7 +26,7 @@ import { extractPlanItems, hasReadyMarker, markCompletedSteps, detectPrimaryLoca
 // ── Constants ──
 
 /** Read-only tools available in planning mode */
-const PLANNING_TOOLS = ["read", "grep", "find", "ls", "questionnaire"];
+const PLANNING_TOOLS = ["read", "grep", "find", "ls", "webfetch", "questionnaire"];
 
 // ── Plan locale i18n ──
 

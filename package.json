@@ -9,7 +9,8 @@
       "./extensions/plan-mode/index.ts",
       "./extensions/git-commit/index.ts",
       "./extensions/command-mappings/index.ts",
-      "./extensions/focus-mode/index.ts"
+      "./extensions/focus-mode/index.ts",
+      "./extensions/webfetch/index.ts"
     ],
     "skills": ["./skills"],
     "prompts": ["./prompts"]
