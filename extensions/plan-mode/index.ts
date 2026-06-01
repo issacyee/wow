@@ -7,9 +7,9 @@
  *   $       Execute the current plan
  *   $ <text> Execute the plan with adjustments
  *
- * Chinese IME support: full-width ？ (U+FF1F) and ￥ (U+FFE5) entered at the
- * start of the editor are automatically converted to ? and $, so users don't
- * need to toggle between Chinese/English input methods.
+ * Chinese IME support: full-width ？ (U+FF1F), ！ (U+FF01) and ￥ (U+FFE5)
+ * entered at the start of the editor are automatically converted to ?, ! and
+ * $, so users don't need to toggle between Chinese/English input methods.
  *
  * Editor border colors:
  *   ? / ??  #f5a742 (orange)
@@ -72,14 +72,19 @@ class PlanModeEditor extends CustomEditor {
   handleInput(data: string): void {
     // Chinese IME: convert full-width prefix characters to half-width
     // when typing at the start of the editor, so users don't need to
-    // toggle between Chinese/English input methods to use ?/??/$ commands.
-    if (data.length === 1 && (data === "\uFF1F" || data === "\uFFE5")) {
+    // toggle between Chinese/English input methods to use ?/??/!/$ commands.
+    if (data.length === 1 && (data === "\uFF1F" || data === "\uFF01" || data === "\uFFE5")) {
       const text = this.getText();
       const cursor = this.getCursor();
 
       if (cursor.line === 0 && cursor.col === 0) {
-        // At the very beginning of input: ？ → ?, ￥ → $
-        super.handleInput(data === "\uFF1F" ? "?" : "$");
+        // At the very beginning of input: ？ → ?, ！ → !, ￥ → $
+        const map: Record<string, string> = {
+          "\uFF1F": "?",
+          "\uFF01": "!",
+          "\uFFE5": "$",
+        };
+        super.handleInput(map[data]);
         return;
       }
 
