@@ -17,7 +17,7 @@ const LOCALE_PREFIX_PATTERNS: Record<string, RegExp[]> = {
 };
 
 /** Detect primary language subtag from OS locale */
-function detectPrimaryLocale(): string {
+export function detectPrimaryLocale(): string {
   try {
     return Intl.DateTimeFormat().resolvedOptions().locale.split("-")[0];
   } catch {
@@ -55,23 +55,25 @@ export function cleanStepText(text: string): string {
   return cleaned;
 }
 
-/** Extract numbered list from Plan: section in message */
+/**
+ * Extract numbered steps from a plan section.
+ * Locale-agnostic: matches any \`## <word>:\` header (Plan:, 计划:, プラン:, etc.).
+ */
 export function extractPlanItems(message: string): TodoItem[] {
+  // Find plan header: ## <word>: <title>
+  const planMatch = message.match(/^##\s+[^:]+:\s*[^\n]*\n([\s\S]*?)(?=\n---\s*\n|$)/m);
+  if (!planMatch) return [];
+
+  // Extract numbered items from everything after the plan header
+  return extractNumberedList(planMatch[1]);
+}
+
+/** Extract numbered items ("1. ...", "2) ...") from a text section */
+function extractNumberedList(section: string): TodoItem[] {
   const items: TodoItem[] = [];
-
-  // Require <plan-mode> envelope (new format, high confidence detection)
-  const envelopeMatch = message.match(/<plan-mode>[\s\S]*?<\/plan-mode>/i);
-  if (!envelopeMatch) return items;
-  const content = envelopeMatch[0];
-
-  // Match plan header: supports ## Plan: Title, **Plan:**, Plan:, etc.
-  const headerMatch = content.match(/#{0,2}\s*\*{0,2}Plan:?\*{0,2}[^\n]*\n/i);
-  if (!headerMatch) return items;
-
-  const planSection = content.slice(content.indexOf(headerMatch[0]) + headerMatch[0].length);
   const numberedPattern = /^\s*(\d+)[.)]\s+\*{0,2}([^*\n]+)/gm;
 
-  for (const match of planSection.matchAll(numberedPattern)) {
+  for (const match of section.matchAll(numberedPattern)) {
     const text = match[2]
       .trim()
       .replace(/\*{1,2}$/, "")

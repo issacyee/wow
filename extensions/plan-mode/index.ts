@@ -21,12 +21,172 @@ import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { AssistantMessage, TextContent } from "@earendil-works/pi-ai";
 
 import { isSafeCommand } from "./safe.ts";
-import { extractPlanItems, markCompletedSteps, type TodoItem } from "./plan.ts";
+import { extractPlanItems, markCompletedSteps, detectPrimaryLocale, type TodoItem } from "./plan.ts";
 
 // ── Constants ──
 
 /** Read-only tools available in planning mode */
 const PLANNING_TOOLS = ["read", "grep", "find", "ls", "questionnaire"];
+
+// ── Plan locale i18n ──
+
+interface PlanLocale {
+  hereIsMyPlan: string;
+  plan: string;
+  background: string;
+  approach: string;
+  filesToModify: string;
+  verification: string;
+  backgroundDesc: string;
+  approachDesc: string;
+  filesDesc: string;
+  verificationDesc: string;
+}
+
+const PLAN_LOCALES: Record<string, PlanLocale> = {
+  zh: {
+    hereIsMyPlan: "这是我的计划：",
+    plan: "计划",
+    background: "背景",
+    approach: "方案",
+    filesToModify: "待修改文件",
+    verification: "验证",
+    backgroundDesc: "为什么需要这个改动（问题背景、触发原因、预期目标）",
+    approachDesc: "推荐的解决方案及编号步骤",
+    filesDesc: "关键文件路径及改动说明",
+    verificationDesc: "如何端到端测试改动（命令、测试步骤等）",
+  },
+  en: {
+    hereIsMyPlan: "Here's my plan:",
+    plan: "Plan",
+    background: "Background",
+    approach: "Approach",
+    filesToModify: "Files to Modify",
+    verification: "Verification",
+    backgroundDesc: "why this change is needed (problem, trigger, expected outcome)",
+    approachDesc: "recommended solution with numbered, actionable steps",
+    filesDesc: "critical file paths with brief descriptions of changes",
+    verificationDesc: "how to test the changes end-to-end (commands, test steps)",
+  },
+};
+
+function getPlanLocale(): PlanLocale {
+  const locale = detectPrimaryLocale();
+  return PLAN_LOCALES[locale] ?? PLAN_LOCALES.en;
+}
+
+function buildNewPlanPrompt(): string {
+  const t = getPlanLocale();
+  return `[PLAN MODE - NEW PLAN]
+
+You are creating a completely new plan. Follow this structured multi-phase workflow:
+
+## Phase 1: Understand the Request
+Goal: Understand the user\'s request and explore the codebase.
+- Use read, grep, find, ls to explore relevant code
+- Ask clarifying questions if the request is ambiguous
+- Do NOT make assumptions about user intent — verify by reading code
+- If the scope is uncertain or spans multiple areas, you may use the subagent tool to delegate exploration tasks
+- Make sure you understand what files and patterns exist before designing
+
+## Phase 2: Design the Approach
+Goal: Design an implementation approach based on your findings.
+- Design the solution based on your Phase 1 understanding
+- For complex tasks, you may use the subagent tool (e.g., with a "planner" agent) to help design
+- Converge on one recommended approach — do not present multiple alternatives
+- You may ask the user about key tradeoffs if uncertain
+
+## Phase 3: Review and Write Final Plan
+Goal: Verify alignment with user intent and write the final plan.
+- Verify the design addresses the original request
+- Read critical files to deepen understanding if needed
+- Output the plan starting with \`## ${t.plan}:\` header following the quality standards below
+
+## Plan Quality Standards
+
+The plan must include:
+1. **${t.background}** — ${t.backgroundDesc}
+2. **${t.approach}** — ${t.approachDesc}
+3. **${t.filesToModify}** — ${t.filesDesc}
+4. **${t.verification}** — ${t.verificationDesc}
+
+Do NOT include:
+- Alternative approaches that were rejected
+- Actual code implementation (that belongs in execution phase)
+- Information the user already provided
+
+Each numbered step should be concrete and directly actionable — detailed enough to execute without additional exploration, but concise enough to scan quickly.
+
+Output format:
+
+${t.hereIsMyPlan}
+
+## ${t.plan}: {short title}
+
+### ${t.background}
+{${t.backgroundDesc}}
+
+### ${t.approach}
+1. **Action** — description, \`target file\`.
+2. **Action** — description, \`target file\`.
+3. ...
+
+### ${t.filesToModify}
+- \`path/to/file.ts\` — {description}
+
+### ${t.verification}
+{${t.verificationDesc}}
+
+Rules:
+- DO NOT edit any files
+- Only read-only tools allowed
+- At any point, feel free to ask the user questions`;
+}
+
+function buildContinuePlanPrompt(): string {
+  const t = getPlanLocale();
+  return `[PLAN MODE - CONTINUE PLAN]
+
+Review the existing plan in light of new user input and update it.
+
+1. Understand the new input and how it affects the existing plan
+2. Read relevant code if needed to verify your understanding
+3. Update the plan following these quality standards:
+   - Include **${t.background}** — ${t.backgroundDesc}
+   - Include **${t.approach}** — ${t.approachDesc}
+   - Include **${t.filesToModify}** — ${t.filesDesc}
+   - Include **${t.verification}** — ${t.verificationDesc}
+4. Output the FULL updated plan starting with \`## ${t.plan}:\` header
+
+Plan quality rules:
+- Only include the recommended approach, not alternatives
+- Do not include actual code (that\'s for execution)
+- Keep steps concise but actionable
+
+Output format:
+
+${t.hereIsMyPlan}
+
+## ${t.plan}: {short title}
+
+### ${t.background}
+{${t.backgroundDesc}}
+
+### ${t.approach}
+1. **Action** — description, \`target file\`.
+2. **Action** — description, \`target file\`.
+3. ...
+
+### ${t.filesToModify}
+- \`path/to/file.ts\` — {description}
+
+### ${t.verification}
+{${t.verificationDesc}}
+
+Rules:
+- DO NOT edit any files
+- Always output the COMPLETE plan, not just the changes`;
+}
 
 // ── Helpers ──
 
@@ -182,30 +342,7 @@ export default function planModeExtension(pi: ExtensionAPI): void {
       return {
         message: {
           customType: "plan-mode-context",
-          content: `[PLAN MODE - NEW PLAN]
-
-You are creating a completely new plan.
-
-Guidelines:
-- Use read-only tools (read, grep, find, ls) to explore the codebase
-- Ask clarifying questions if needed
-- Think about the best approach
-
-Output the plan in the following format:
-
-<plan-mode>
-
-## Plan: {short title describing the goal}
-
-1. **Action** — brief description, \`target file\`.
-2. **Action** — brief description, \`target file\`.
-3. ...
-
-</plan-mode>
-
-Rules:
-- DO NOT edit any files
-- Each step should have a clear action verb and target`,
+          content: buildNewPlanPrompt(),
           display: false,
         },
       };
@@ -215,29 +352,7 @@ Rules:
       return {
         message: {
           customType: "plan-mode-context",
-          content: `[PLAN MODE - CONTINUE PLAN]
-
-Review the existing plan and adjust based on new input.
-
-Guidelines:
-- Use read-only tools (read, grep, find, ls) to explore if needed
-- Output the FULL updated plan, not just the changes
-
-Format (output the complete plan):
-
-<plan-mode>
-
-## Plan: {short title}
-
-1. **Action** — description, \`target file\`.
-2. **Action** — description, \`target file\`.
-3. ...
-
-</plan-mode>
-
-Rules:
-- DO NOT edit any files
-- Always wrap the FULL plan in <plan-mode> tags`,
+          content: buildContinuePlanPrompt(),
           display: false,
         },
       };
