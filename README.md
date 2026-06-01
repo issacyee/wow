@@ -16,15 +16,17 @@ Or symlink to a local development directory. See [pi packages docs](https://gith
 
 ### Plan Mode — `?` / `??` / `$`
 
-A stateless planning workflow that prompts the AI to produce a plan before executing.
+A multi-phase planning workflow that prompts the AI to explore, design, and then execute.
 
 | Input | Behavior |
 |-------|----------|
-| `? <text>` | Start a new plan, read-only exploration |
-| `?? <text>` | Continue/adjust the previous plan |
-| `$` | Execute the current plan |
+| `? <text>` | Start a new plan — read-only exploration, design, review
+| `?? <text>` | Continue/adjust the previous plan
+| `$` | Execute the current plan
 | `$ <text>` | Execute the plan with adjustments |
 
+- **Multi-phase workflow**: new plans go through Understand → Design → Review & Write phases before producing the final plan
+- **Localized prompts**: plan prompts are generated in the user's OS language (zh/en supported) for natural reading experience
 - **Editor border colors**: orange (`#f5a742`) in `?` / `??` mode, blue (`#5c9cf5`) in `$` execution mode — visual feedback for the current mode
 - **Read-only safety**: planning mode automatically blocks `edit` / `write` tools and dangerous bash commands, preventing accidental modifications
 - **Progress tracking**: `[DONE:n]` markers in AI responses are recognized automatically; a completion summary is emitted when all steps are done
@@ -44,6 +46,8 @@ from staged changes via a direct LLM call (isolated from main session context), 
 executes the commit. Uses "caveman-commit" style — ultra-compressed, subject ≤50 chars,
 body only when the "why" isn't obvious. No AI attribution, no emoji, no fluff.
 
+Optionally pass extra context: `/git-commit refactor for performance`.
+
 ### Command Mappings — Declarative Aliases
 
 Registers command aliases via a declarative array in one extension, instead of creating
@@ -52,9 +56,10 @@ Add new mappings by appending entries to the `COMMAND_MAPPINGS` array.
 
 ### Focus Mode — Minimal Tool Rendering
 
-Overrides all built-in tools (read, bash, edit, write, grep, find, ls) to replace the
+Overrides all 7 built-in tools (read, bash, edit, write, grep, find, ls) to replace the
 default green-background Box with a single dim-text line per tool call. Tool output is
 hidden entirely. Multiple consecutive tool calls appear flush together with no spacing.
+Paths are shortened (`~/` for home, truncation for long paths), commands are collapsed.
 
 | Before (default) | After (focus mode) |
 |------------------|-------------------|
@@ -83,24 +88,25 @@ hidden entirely. Multiple consecutive tool calls appear flush together with no s
 
 ```
 pi.zero/
-├── AGENTS.md                # Project context
+├── AGENTS.md                # Project context for AI agents
 ├── LICENSE                  # MIT License
 ├── package.json             # Pi package manifest
+├── README.md                # This file
 ├── extensions/
 │   ├── locale/              # OS language detection (injects language instruction via before_agent_start)
 │   │   └── index.ts         # Detects locale → injects language directive into each AI turn
 │   ├── plan-mode/           # ?/??/$ plan mode extension
-│   │   ├── index.ts         # Entry: prefix detection, context injection, tool interception
-│   │   ├── plan.ts          # Plan item extraction, [DONE:n] tracking, text cleaning
-│   │   └── safe.ts          # Bash safety check in planning mode
+│   │   ├── index.ts         # Entry: prefix detection, context injection, tool interception, custom editor
+│   │   ├── plan.ts          # Plan item extraction, [DONE:n] tracking, text cleanup, i18n locale detection
+│   │   └── safe.ts          # Bash destructive-pattern whitelist (planning mode safety)
 │   ├── git-commit/          # /git-commit — LLM-generated Conventional Commits
-│   │   └── index.ts         # Standalone LLM call, parses output, executes commit
-│   ├── command-mappings/     # Generic declarative command alias registry
+│   │   └── index.ts         # Standalone LLM call, parses output, executes commit via temp file
+│   ├── command-mappings/    # Generic declarative command alias registry
 │   │   └── index.ts         # Define command aliases (/exit, etc.) declaratively
 │   └── focus-mode/          # Minimal, unobtrusive tool rendering
-│       └── index.ts         # Replaces green background Box with dim single-line tool calls
-├── prompts/                 # Prompt templates (optional, currently empty)
-└── skills/                  # Skills (optional, currently empty)
+│       └── index.ts         # Overrides 7 built-in tools with dim single-line rendering
+├── prompts/                 # Prompt templates (reserved, currently empty)
+└── skills/                  # Skills (reserved, currently empty)
 ```
 
 ## License

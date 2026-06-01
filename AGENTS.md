@@ -7,22 +7,24 @@ My personal foundational pi package, bundling essential universal features for d
 ```
 pi.zero/
 ├── AGENTS.md               # This file — project context
+├── LICENSE                  # MIT License
 ├── package.json             # pi package manifest
+├── README.md                # User-facing documentation
 ├── extensions/
 │   ├── locale/              # OS language detection (injects language instruction via before_agent_start)
 │   │   └── index.ts         # Detects locale → injects language directive into each AI turn
 │   ├── plan-mode/           # ?/??/$ plan mode extension
-│   │   ├── index.ts         # Entry: prefix detection, context injection, tool interception
-│   │   ├── plan.ts          # Plan item extraction, [DONE:n] tracking, text cleanup
-│   │   └── safe.ts          # Bash safety check in planning mode
+│   │   ├── index.ts         # Entry: prefix detection, context injection, tool interception, custom editor
+│   │   ├── plan.ts          # Plan item extraction, [DONE:n] tracking, text cleanup, i18n locale detection
+│   │   └── safe.ts          # Bash destructive-pattern whitelist (planning mode safety)
 │   ├── git-commit/          # /git-commit — LLM-generated Conventional Commits
-│   │   └── index.ts         # Standalone LLM call, parses output, executes commit
-│   ├── command-mappings/     # Generic declarative command alias registry
+│   │   └── index.ts         # Standalone LLM call, parses output, executes commit via temp file
+│   ├── command-mappings/    # Generic declarative command alias registry
 │   │   └── index.ts         # Define command aliases (/exit, etc.) declaratively
 │   └── focus-mode/          # Minimal, unobtrusive tool rendering
-│       └── index.ts         # Replaces green background Box with dim single-line tool calls
-├── prompts/                 # Prompt templates (optional, currently empty)
-└── skills/                  # Skills (optional, currently empty)
+│       └── index.ts         # Overrides 7 built-in tools with dim single-line rendering
+├── prompts/                 # Prompt templates (reserved, currently empty)
+└── skills/                  # Skills (reserved, currently empty)
 ```
 
 ## Development Conventions
@@ -39,12 +41,50 @@ and other technical content use English.
 ### Technical Conventions
 
 - Use TypeScript, following existing code style
-- Extension runtime dependencies (peerDependencies): `@earendil-works/pi-coding-agent`, `@earendil-works/pi-agent-core`, `@earendil-works/pi-ai`
+- Extension runtime dependencies (peerDependencies):
+  - `@earendil-works/pi-coding-agent` — extension API, tool factories, custom editor
+  - `@earendil-works/pi-agent-core` — agent message types
+  - `@earendil-works/pi-ai` — LLM completion API (`complete`, message types)
+  - `@earendil-works/pi-tui` — TUI components (`Text`, `Container`), used by focus-mode
 - Run `/reload` or restart pi after editing extensions
 - Keep the destructive patterns list in `safe.ts` comprehensive — omissions may cause data loss in plan mode
-- The custom editor (`PlanModeEditor`) overrides `handleInput()` to convert full-width
-  `？`/`！`/`￥` to half-width `?`/`!`/`$` at cursor position 0, so Chinese IME users
-  don't need to toggle input method for plan-mode commands
+- The custom editor (`PlanModeEditor`) is installed via `session_start` event and overrides `handleInput()` to convert full-width `？`/`！`/`￥` to half-width `?`/`!`/`$` at cursor position 0, so Chinese IME users don't need to toggle input method for plan-mode commands
+- The editor border color is intercepted via `Object.defineProperty` on `borderColor` to overlay mode-specific colors (orange/blue) while preserving the framework's native border color for thinking/bash mode
+
+## Extension Details
+
+### locale
+
+Detects OS language via `Intl.DateTimeFormat().resolvedOptions().locale` and maps it to a human-readable name via `LOCALE_MAP`. Injects a `[LANGUAGE]` instruction into every agent turn via `before_agent_start`.
+
+### plan-mode
+
+A multi-phase planning workflow triggered by `?`/`??`/`$` input prefixes.
+
+**Phases (new plan):**
+1. **Understand** — read-only codebase exploration (read, grep, find, ls, questionnaire)
+2. **Design** — converge on one recommended approach
+3. **Review & Write** — output structured plan with Background / Approach / Files to Modify / Verification sections
+
+**Key mechanics:**
+- `ACTION_MARKER` (`"Ready to go?"`) is the stable bridge between plan mode and execution mode — detected in reverse-scanned assistant messages at `agent_end`
+- `[DONE:n]` markers in AI responses are tracked via `markCompletedSteps()` to show progress during `$` execution
+- Plan prompts are localized (zh/en) via `PLAN_LOCALES` and `getPlanLocale()`, detecting locale from `detectPrimaryLocale()` in `plan.ts`
+- Tool restriction in planning mode: only read-only tools allowed; `edit`/`write` blocked, bash filtered through `safe.ts` pattern list
+- Editor border colors: orange (`#f5a742`) for `?`/`??`, blue (`#5c9cf5`) for `$`
+- State is module-level (`turnMode`, `todoItems`, `lastTurnHadPlan`, `planFullText`) — per-session, reset on `agent_end`
+
+### git-commit
+
+Standalone LLM call (isolated from main session) using the caveman-commit system prompt. Reads staged diff via `git diff --cached`, truncates at 800 lines, sends to LLM for message generation. Parses output (strips code fences, preamble, attribution) and commits via temp `COMMIT_EDITMSG` file. Supports optional user-provided extra context via command args.
+
+### command-mappings
+
+Declarative array (`COMMAND_MAPPINGS`) of `{ name, description, handler }` objects. Currently provides `/exit` as alias for `/quit`. Add new mappings by appending entries.
+
+### focus-mode
+
+Overrides all 7 built-in tools (read, bash, edit, write, grep, find, ls) using `createXxxTool()` factory functions from the SDK. Each overridden tool uses `renderShell: "self"` with custom `renderCall` (single dim-text line) and empty `renderResult`. Tool sets are cached per cwd via `toolCache` map.
 
 ## Plan Mode Reference
 
