@@ -489,6 +489,10 @@ Blocked command: ${command}`,
         lastTurnHadPlan = false;
         planFullText = "";
       }
+
+      // Restore all tools so the user can continue with normal chat
+      // without first typing $ to unlock them.
+      pi.setActiveTools(pi.getAllTools().map(t => t.name));
     }
 
     if (turnMode === "executing" && todoItems.length > 0) {
