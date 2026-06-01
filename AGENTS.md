@@ -30,6 +30,9 @@ pi.zero/
 - Extension runtime dependencies (peerDependencies): `@earendil-works/pi-coding-agent`, `@earendil-works/pi-agent-core`, `@earendil-works/pi-ai`
 - Run `/reload` or restart pi after editing extensions
 - Keep the destructive patterns list in `safe.ts` comprehensive — omissions may cause data loss in plan mode
+- The custom editor (`PlanModeEditor`) overrides `handleInput()` to convert full-width
+  `？`/`！`/`￥` to half-width `?`/`!`/`$` at cursor position 0, so Chinese IME users
+  don't need to toggle input method for plan-mode commands
 
 ## Plan Mode Reference
 
@@ -39,3 +42,6 @@ pi.zero/
 | `?? <text>` | Continue/adjust the previous plan |
 | `$` | Execute the current plan |
 | `$ <text>` | Execute the plan with adjustments |
+
+> **Chinese IME**: Full-width `？` `！` `￥` are automatically converted to `?` `!` `$`
+> when typed at the start of the editor — no need to switch input methods.

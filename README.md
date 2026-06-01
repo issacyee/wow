@@ -28,6 +28,8 @@ A stateless planning workflow that prompts the AI to produce a plan before execu
 - **Editor border colors**: orange (`#f5a742`) in `?` / `??` mode, blue (`#5c9cf5`) in `$` execution mode — visual feedback for the current mode
 - **Read-only safety**: planning mode automatically blocks `edit` / `write` tools and dangerous bash commands, preventing accidental modifications
 - **Progress tracking**: `[DONE:n]` markers in AI responses are recognized automatically; a completion summary is emitted when all steps are done
+- **Chinese IME friendly**: Full-width `？` `！` `￥` typed at the start of the editor
+  are automatically converted to `?` `!` `$` — no need to switch input methods
 
 ## Development
 
