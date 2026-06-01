@@ -137,17 +137,11 @@ ${t.hereIsMyPlan}
 ### ${t.verification}
 {${t.verificationDesc}}
 
-After the human-readable plan above, add a concise action summary. Start with a line:
+After the human-readable plan above, end with a single line:
 
 ${ACTION_MARKER}
 
-Then list each numbered step (plain text, no bold/backticks):
-
-1. Do this first
-2. Then do this
-3. Finally do this
-
-This action summary is REQUIRED — the system needs it to reliably move from planning to execution.
+This line signals that the plan is ready for execution.
 
 Rules:
 - DO NOT edit any files
@@ -195,17 +189,11 @@ ${t.hereIsMyPlan}
 ### ${t.verification}
 {${t.verificationDesc}}
 
-After the human-readable plan above, add a concise action summary. Start with a line:
+After the human-readable plan above, end with a single line:
 
 ${ACTION_MARKER}
 
-Then list each numbered step (plain text, no bold/backticks):
-
-1. Do this first
-2. Then do this
-3. Finally do this
-
-This action summary is REQUIRED — the system needs it to reliably move from planning to execution.
+This line signals that the plan is ready for execution.
 
 Rules:
 - DO NOT edit any files

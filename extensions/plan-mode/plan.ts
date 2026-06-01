@@ -48,6 +48,9 @@ export function cleanStepText(text: string): string {
     cleaned = cleaned.replace(pattern, "");
   }
 
+  // Strip leading em-dash/en-dash (from "**Action** — description" format)
+  cleaned = cleaned.replace(/^[—–]\s*/, "");
+
   cleaned = cleaned
     .replace(/\s+/g, " ")
     .trim();
@@ -96,13 +99,10 @@ export function extractPlanItems(message: string): TodoItem[] {
 /** Extract numbered items ("1. ...", "2) ...") from a text section */
 function extractNumberedList(section: string): TodoItem[] {
   const items: TodoItem[] = [];
-  const numberedPattern = /^\s*(\d+)[.)]\s+\*{0,2}([^*\n]+)/gm;
+  const numberedPattern = /^\s*(\d+)[.)]\s+(.+)$/gm;
 
   for (const match of section.matchAll(numberedPattern)) {
-    const text = match[2]
-      .trim()
-      .replace(/\*{1,2}$/, "")
-      .trim();
+    const text = match[2].trim();
     if (text.length > 5 && !text.startsWith("`") && !text.startsWith("/") && !text.startsWith("-")) {
       const cleaned = cleanStepText(text);
       if (cleaned.length > 3) {
