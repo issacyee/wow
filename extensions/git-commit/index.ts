@@ -11,7 +11,7 @@
 
 import { complete, type Message } from "@earendil-works/pi-ai";
 import { type ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { execSync } from "node:child_process";
+import { execOrNull, execWithError } from "../wow/shell.ts";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
@@ -54,34 +54,7 @@ feat(api)!: rename /v1/orders to /v1/checkout
 
 BREAKING CHANGE: clients on /v1/orders must migrate to /v1/checkout`;
 
-// ── Helpers ──
-
-/** Run a command, return stdout on success or null on failure.
- *  When ignoreStderr is true, stderr is suppressed (cross-platform).
- *  Using stdio option instead of shell redirects to avoid
- *  /dev/null vs NUL incompatibility on Windows. */
-function execOrNull(command: string, ignoreStderr = false): string | null {
-  try {
-    const opts: any = { encoding: "utf-8", timeout: 10000 };
-    if (ignoreStderr) opts.stdio = ["ignore", "pipe", "ignore"];
-    return execSync(command, opts).toString().trim();
-  } catch {
-    return null;
-  }
-}
-
-function execWithError(command: string): { stdout: string; stderr: string; exitCode: number } {
-  try {
-    const stdout = execSync(command, { encoding: "utf-8", timeout: 30000 }).trim();
-    return { stdout, stderr: "", exitCode: 0 };
-  } catch (e: any) {
-    return {
-      stdout: (e.stdout?.toString() || "").trim(),
-      stderr: (e.stderr?.toString() || "").trim(),
-      exitCode: e.status ?? 1,
-    };
-  }
-}
+// ── Helpers (shell utilities imported from wow/shell.ts) ──
 
 /** Parse commit message from LLM output — strip fences and preamble */
 function parseCommitMessage(raw: string): string {

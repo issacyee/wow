@@ -5,6 +5,10 @@
  * - Clean step text for widget display
  */
 
+import { detectPrimaryLocale } from "../wow/locale.ts";
+
+export { detectPrimaryLocale };
+
 export interface TodoItem {
   step: number;
   text: string;
@@ -25,15 +29,6 @@ const ACTION_MARKER_RE = /^Ready to go\?\n([\s\S]*)/im;
 /** Check whether a message contains the "Ready to go?" plan completion marker */
 export function hasReadyMarker(text: string): boolean {
   return /^Ready to go\?/im.test(text);
-}
-
-/** Detect primary language subtag from OS locale */
-export function detectPrimaryLocale(): string {
-  try {
-    return Intl.DateTimeFormat().resolvedOptions().locale.split("-")[0];
-  } catch {
-    return "en";
-  }
 }
 
 /** Clean step text: remove Markdown formatting, truncate long text */

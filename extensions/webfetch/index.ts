@@ -12,127 +12,18 @@
 
 import { defineTool, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { StringEnum, Type } from "@earendil-works/pi-ai";
-import { createFocusRenderCall, focusRenderResult } from "../focus-mode/renderer.ts";
+import { createFocusRenderCall, focusRenderResult } from "../wow/renderer.ts";
+import {
+  extractTextFromHTML,
+  convertHTMLToMarkdown,
+  isRasterImage,
+} from "../wow/html.ts";
 
 // ── Constants ──
 
 const MAX_RESPONSE_SIZE = 5 * 1024 * 1024; // 5MB
 const DEFAULT_TIMEOUT = 30 * 1000; // 30 seconds
 const MAX_TIMEOUT = 120 * 1000; // 2 minutes
-
-// ── HTML helpers (zero dependencies) ──
-
-/** Tags whose content should be completely removed */
-const STRIP_TAGS = new Set([
-  "script", "style", "noscript", "iframe", "object", "embed",
-  "head", "meta", "link", "svg",
-]);
-
-/**
- * Extract plain text from HTML, stripping all tags and collapsing whitespace.
- * Removes content inside script/style/noscript/etc. elements.
- */
-function extractTextFromHTML(html: string): string {
-  // Remove content inside blacklisted tags
-  let text = html.replace(
-    new RegExp(`<(${[...STRIP_TAGS].join("|")})\\b[^>]*>[\\s\\S]*?<\\/\\1>`, "gi"),
-    "",
-  );
-  // Remove remaining tags
-  text = text.replace(/<[^>]+>/g, " ");
-  // Decode common HTML entities
-  text = text
-    .replace(/&amp;/g, "&")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
-    .replace(/&nbsp;/g, " ");
-  // Collapse whitespace
-  text = text.replace(/[ \t]+/g, " ").replace(/\n\s*\n/g, "\n\n").trim();
-  return text;
-}
-
-/**
- * Convert HTML to a simplified Markdown-like format.
- * Handles headings, paragraphs, lists, links, emphasis, code blocks, and tables.
- */
-function convertHTMLToMarkdown(html: string): string {
-  // Remove content inside blacklisted tags
-  let md = html.replace(
-    new RegExp(`<(${[...STRIP_TAGS].join("|")})\\b[^>]*>[\\s\\S]*?<\\/\\1>`, "gi"),
-    "",
-  );
-
-  // Self-closing / void elements → newline
-  md = md.replace(/<br\s*\/?>/gi, "\n");
-  md = md.replace(/<hr\s*\/?>/gi, "\n---\n");
-
-  // Headings
-  md = md.replace(/<h([1-6])\b[^>]*>([\s\S]*?)<\/h\1>/gi, (_m, level: string, content: string) => {
-    const text = stripTags(content);
-    return `\n${"#".repeat(Number(level))} ${text}\n`;
-  });
-
-  // Paragraphs and divs
-  md = md.replace(/<p\b[^>]*>([\s\S]*?)<\/p>/gi, "\n$1\n");
-  md = md.replace(/<div\b[^>]*>([\s\S]*?)<\/div>/gi, "\n$1\n");
-
-  // Lists
-  md = md.replace(/<li\b[^>]*>([\s\S]*?)<\/li>/gi, (_m, content: string) => {
-    return `- ${stripTags(content).trim()}\n`;
-  });
-  md = md.replace(/<\/?[uo]l\b[^>]*>/gi, "\n");
-
-  // Links
-  md = md.replace(/<a\b[^>]*href="([^"]*)"[^>]*>([\s\S]*?)<\/a>/gi, "[$2]($1)");
-
-  // Bold / italic
-  md = md.replace(/<(strong|b)\b[^>]*>([\s\S]*?)<\/\1>/gi, "**$2**");
-  md = md.replace(/<(em|i)\b[^>]*>([\s\S]*?)<\/\1>/gi, "*$2*");
-
-  // Inline code
-  md = md.replace(/<code\b[^>]*>([\s\S]*?)<\/code>/gi, "`$1`");
-
-  // Pre/code blocks
-  md = md.replace(/<pre\b[^>]*>([\s\S]*?)<\/pre>/gi, (_m, content: string) => {
-    const code = stripTags(content).trim();
-    return `\n\`\`\`\n${code}\n\`\`\`\n`;
-  });
-
-  // Table cells — simple row/column separation
-  md = md.replace(/<t[hd]\b[^>]*>([\s\S]*?)<\/t[hd]>/gi, " $1 |");
-  md = md.replace(/<\/tr>/gi, "\n");
-
-  // Remove all remaining tags
-  md = stripTags(md);
-
-  // Decode HTML entities
-  md = md
-    .replace(/&amp;/g, "&")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
-    .replace(/&nbsp;/g, " ");
-
-  // Clean up whitespace
-  md = md.replace(/[ \t]+/g, " ");
-  md = md.replace(/\n{3,}/g, "\n\n");
-  md = md.trim();
-
-  return md;
-}
-
-/** Strip all HTML tags from a string */
-function stripTags(html: string): string {
-  return html.replace(/<[^>]+>/g, "");
-}
-
-/** Check if a MIME type is a raster image (not SVG) */
-function isRasterImage(mime: string): boolean {
-  return mime.startsWith("image/") && !mime.includes("svg");
-}
 
 // ── Tool definition ──
 

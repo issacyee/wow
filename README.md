@@ -23,7 +23,7 @@ A multi-phase planning workflow that prompts the AI to explore, design, and then
 | `? <text>` | Start a new plan — read-only exploration, design, review
 | `?? <text>` | Continue/adjust the previous plan
 | `$` | Execute the current plan
-| `$ <text>` | Execute the plan with adjustments |
+| `$ <text>` | Execute the plan with adjustments
 
 - **Multi-phase workflow**: new plans go through Understand → Design → Review & Write phases before producing the final plan
 - **Localized prompts**: plan prompts are generated in the user's OS language (zh/en supported) for natural reading experience
@@ -62,7 +62,7 @@ hidden entirely. Multiple consecutive tool calls appear flush together with no s
 Paths are shortened (`~/` for home, truncation for long paths), commands are collapsed.
 File paths are rendered as clickable OSC 8 `file://` hyperlinks in supported terminals.
 
-Custom tools can reuse the same dim rendering via `renderer.ts` exports
+Custom tools can reuse the same dim rendering via shared utilities from `wow/renderer.ts`
 (`createFocusRenderCall`, `focusRenderResult`).
 
 | Before (default) | After (focus mode) |
@@ -98,6 +98,38 @@ regex for headings, lists, links, emphasis, code blocks, and tables.
 | `format` | `"markdown"` | Output format: `markdown`, `text`, or `html` |
 | `timeout` | 30 | Timeout in seconds (max 120) |
 
+## Architecture
+
+### Shared Utility Layer — `extensions/wow/`
+
+The package uses a centralized base extension (`wow`) that provides shared utilities
+for all other extensions. It registers nothing at runtime and has no side effects —
+it serves purely as an import source for common functions.
+
+| Sub-module | Exports | Used by |
+|------------|---------|---------|
+| `locale.ts` | `detectLocale`, `detectPrimaryLocale`, `localeToDisplayName`, `buildLanguageInstruction`, `LOCALE_MAP` | locale, plan-mode |
+| `renderer.ts` | `createFocusRenderCall`, `focusRenderCall`, `focusRenderResult` | focus-mode, webfetch |
+| `paths.ts` | `shortenPath`, `linkPath`, `shortenCommand` | focus-mode |
+| `html.ts` | `convertHTMLToMarkdown`, `extractTextFromHTML`, `stripTags`, `isRasterImage`, `STRIP_TAGS` | webfetch |
+| `shell.ts` | `execOrNull`, `execWithError` | git-commit |
+
+Each sub-module can be imported directly by relative path:
+
+```typescript
+import { detectPrimaryLocale } from "../wow/locale.ts";
+import { createFocusRenderCall, focusRenderResult } from "../wow/renderer.ts";
+import { shortenPath, linkPath } from "../wow/paths.ts";
+import { convertHTMLToMarkdown } from "../wow/html.ts";
+import { execOrNull, execWithError } from "../wow/shell.ts";
+```
+
+Or import everything from the unified entry:
+
+```typescript
+import { detectLocale, createFocusRenderCall, shortenPath } from "../wow/index.ts";
+```
+
 ## Development
 
 ```bash
@@ -109,6 +141,7 @@ regex for headings, lists, links, emphasis, code blocks, and tables.
 - **Dialogue**: user-AI communication uses the OS locale language
 - **Technical content**: code, comments, config, documentation, commit messages use English
 - **Code style**: TypeScript, following existing conventions
+- **Shared utilities**: all reusable functions live in `extensions/wow/` — import from there, don't duplicate
 
 ### Project Structure
 
@@ -119,6 +152,13 @@ wow/
 ├── package.json             # Pi package manifest
 ├── README.md                # This file
 ├── extensions/
+│   ├── wow/                 # Base extension — shared utilities
+│   │   ├── index.ts         # Extension entry (no-op), unified re-export of all sub-modules
+│   │   ├── locale.ts        # OS language detection (detectLocale, detectPrimaryLocale, LOCALE_MAP)
+│   │   ├── renderer.ts      # Focus-style dim rendering (createFocusRenderCall, focusRenderResult)
+│   │   ├── paths.ts         # Path shortening & OSC 8 hyperlink (shortenPath, linkPath, shortenCommand)
+│   │   ├── html.ts          # HTML → Markdown/Text conversion (convertHTMLToMarkdown, extractTextFromHTML)
+│   │   └── shell.ts         # Sync command execution wrappers (execOrNull, execWithError)
 │   ├── locale/              # OS language detection (injects language instruction via before_agent_start)
 │   │   └── index.ts         # Detects locale → injects language directive into each AI turn
 │   ├── plan-mode/           # ?/??/$ plan mode extension
@@ -129,9 +169,9 @@ wow/
 │   │   └── index.ts         # Standalone LLM call, parses output, executes commit via temp file
 │   ├── command-mappings/    # Generic declarative command alias registry
 │   │   └── index.ts         # Define command aliases (/exit, etc.) declaratively
-│   └── focus-mode/          # Minimal, unobtrusive tool rendering
-│       ├── index.ts         # Overrides 7 built-in tools with dim single-line rendering
-│       └── renderer.ts      # Shared dim-style rendering utilities for custom tools
+│   ├── focus-mode/          # Minimal, unobtrusive tool rendering
+│   │   ├── index.ts         # Overrides 7 built-in tools with dim single-line rendering
+│   │   └── renderer.ts      # Re-export from wow/renderer.ts (backward compatibility shim)
 │   └── webfetch/            # Fetch web content and convert to markdown/text/html
 │       └── index.ts         # Zero-dep webfetch tool using native fetch + regex HTML conversion
 ├── prompts/                 # Prompt templates (reserved, currently empty)

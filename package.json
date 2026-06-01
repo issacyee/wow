@@ -5,6 +5,7 @@
   "keywords": ["pi-package", "workflow", "plan-mode"],
   "pi": {
     "extensions": [
+      "./extensions/wow/index.ts",
       "./extensions/locale/index.ts",
       "./extensions/plan-mode/index.ts",
       "./extensions/git-commit/index.ts",
