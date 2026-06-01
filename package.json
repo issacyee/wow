@@ -1,7 +1,7 @@
 {
-  "name": "pi.zero",
+  "name": "wow",
   "version": "0.1.0",
-  "description": "My foundational pi package — universal tools for daily AI workflow",
+  "description": "Wow — a foundational pi package for daily AI coding workflows",
   "keywords": ["pi-package", "workflow", "plan-mode"],
   "pi": {
     "extensions": [

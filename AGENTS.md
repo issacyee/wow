@@ -1,11 +1,11 @@
-# pi.zero — Foundational AI Workflow pi Package
+# Wow — Foundational AI Workflow pi Package
 
-My personal foundational pi package, bundling essential universal features for daily AI coding workflows.
+A foundational pi package bundling essential features for daily AI coding workflows.
 
 ## Structure
 
 ```
-pi.zero/
+wow/
 ├── AGENTS.md               # This file — project context
 ├── LICENSE                  # MIT License
 ├── package.json             # pi package manifest

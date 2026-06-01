@@ -1,4 +1,4 @@
-# pi.zero
+# Wow
 
 A foundational pi package bundling essential features for daily AI coding workflows.
 
@@ -7,7 +7,7 @@ A foundational pi package bundling essential features for daily AI coding workfl
 Clone the repository into your pi packages directory:
 
 ```bash
-git clone <repo-url> ~/.pi/packages/pi.zero
+git clone <repo-url> ~/.pi/packages/wow
 ```
 
 Or symlink to a local development directory. See [pi packages docs](https://github.com/earendil-works/pi) for details.
@@ -113,7 +113,7 @@ regex for headings, lists, links, emphasis, code blocks, and tables.
 ### Project Structure
 
 ```
-pi.zero/
+wow/
 ├── AGENTS.md                # Project context for AI agents
 ├── LICENSE                  # MIT License
 ├── package.json             # Pi package manifest
