@@ -63,8 +63,8 @@ export function cleanStepText(text: string): string {
   if (cleaned.length > 0) {
     cleaned = cleaned.charAt(0).toUpperCase() + cleaned.slice(1);
   }
-  if (cleaned.length > 55) {
-    cleaned = cleaned.slice(0, 52) + "...";
+  if (cleaned.length > 80) {
+    cleaned = cleaned.slice(0, 77) + "...";
   }
   return cleaned;
 }
@@ -108,9 +108,9 @@ function extractNumberedList(section: string): TodoItem[] {
 
   for (const match of section.matchAll(numberedPattern)) {
     const text = match[2].trim();
-    if (text.length > 5 && !text.startsWith("`") && !text.startsWith("/") && !text.startsWith("-")) {
+    if (text.length > 2 && !text.startsWith("/")) {
       const cleaned = cleanStepText(text);
-      if (cleaned.length > 3) {
+      if (cleaned.length > 2) {
         items.push({ step: items.length + 1, text: cleaned, completed: false });
       }
     }

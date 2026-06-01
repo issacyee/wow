@@ -16,7 +16,7 @@
  *   $        #5c9cf5 (blue)
  */
 
-import { CustomEditor, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { CustomEditor, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { AssistantMessage, TextContent } from "@earendil-works/pi-ai";
 
@@ -149,9 +149,12 @@ Rules:
 - At any point, feel free to ask the user questions`;
 }
 
-function buildContinuePlanPrompt(): string {
+function buildContinuePlanPrompt(existingPlan?: string): string {
   const t = getPlanLocale();
-  return `[PLAN MODE - CONTINUE PLAN]
+  const planContext = existingPlan
+    ? `\n---\nExisting plan to review and update:\n${existingPlan}\n---\n`
+    : "";
+  return `[PLAN MODE - CONTINUE PLAN]${planContext}
 
 Review the existing plan in light of new user input and update it.
 
@@ -296,6 +299,47 @@ let lastTurnHadPlan = false;
 let hasAdjustment = false;
 let planFullText = "";
 
+/** Reset all module-level state to initial values */
+function resetState(): void {
+  turnMode = null;
+  todoItems = [];
+  lastTurnHadPlan = false;
+  hasAdjustment = false;
+  planFullText = "";
+}
+
+/** Persist current plan-mode state into the session for later recovery */
+function persistState(pi: ExtensionAPI): void {
+  pi.appendEntry("plan-mode", {
+    lastTurnHadPlan,
+    todoItems,
+    planFullText,
+  });
+}
+
+/** Update widget and status to reflect current plan progress */
+function updateProgressUI(ctx: any): void {
+  if (turnMode === "executing" && todoItems.length > 0) {
+    const completed = todoItems.filter((t) => t.completed).length;
+    const total = todoItems.length;
+
+    // Footer status
+    ctx.ui.setStatus("plan-mode", ctx.ui.theme.fg("accent", `📋 ${completed}/${total}`));
+
+    // Widget checklist
+    const lines = todoItems.map((item) => {
+      if (item.completed) {
+        return ctx.ui.theme.fg("success", "☑ ") + ctx.ui.theme.fg("muted", ctx.ui.theme.strikethrough(item.text));
+      }
+      return `${ctx.ui.theme.fg("muted", "☐ ")}${item.text}`;
+    });
+    ctx.ui.setWidget("plan-todos", lines);
+  } else {
+    ctx.ui.setStatus("plan-mode", undefined);
+    ctx.ui.setWidget("plan-todos", undefined);
+  }
+}
+
 // ── Extension entry ──
 
 export default function planModeExtension(pi: ExtensionAPI): void {
@@ -308,6 +352,10 @@ export default function planModeExtension(pi: ExtensionAPI): void {
     // ?? must come first to avoid being consumed by ?
     if (event.text.startsWith("??")) {
       const text = event.text.slice(2).trim();
+      if (!text) {
+        ctx.ui.notify("Please provide a description after ??", "info");
+        return { action: "handled" };
+      }
       if (lastTurnHadPlan || todoItems.length > 0) {
         turnMode = "plan-continue";
         pi.setActiveTools(PLANNING_TOOLS);
@@ -323,6 +371,10 @@ export default function planModeExtension(pi: ExtensionAPI): void {
 
     if (event.text.startsWith("?")) {
       const text = event.text.slice(1).trim();
+      if (!text) {
+        ctx.ui.notify("Please provide a description after ?", "info");
+        return { action: "handled" };
+      }
       turnMode = "plan-new";
       todoItems = [];
       planFullText = "";
@@ -367,7 +419,7 @@ export default function planModeExtension(pi: ExtensionAPI): void {
       return {
         message: {
           customType: "plan-mode-context",
-          content: buildContinuePlanPrompt(),
+          content: buildContinuePlanPrompt(planFullText || undefined),
           display: false,
         },
       };
@@ -439,7 +491,7 @@ Example: "...created the user model. [DONE:1]"`,
       if (!isSafeCommand(command)) {
         return {
           block: true,
-          reason: `Plan mode: dangerous command blocked. Only read-only commands are allowed.
+          reason: `Plan mode: command blocked. Only allowlisted read-only commands are permitted.
 Blocked command: ${command}`,
         };
       }
@@ -450,19 +502,22 @@ Blocked command: ${command}`,
   //  turn_end — [DONE:n] progress tracking
   // ──────────────────────────────────────
 
-  pi.on("turn_end", async (event, _ctx) => {
+  pi.on("turn_end", async (event, ctx) => {
     if (turnMode !== "executing" || todoItems.length === 0) return;
     if (!isAssistantMessage(event.message)) return;
 
     const text = getTextContent(event.message);
-    markCompletedSteps(text, todoItems);
+    if (markCompletedSteps(text, todoItems) > 0) {
+      updateProgressUI(ctx);
+      persistState(pi);
+    }
   });
 
   // ──────────────────────────────────────
   //  agent_end — extract plan / detect completion
   // ──────────────────────────────────────
 
-  pi.on("agent_end", async (event) => {
+  pi.on("agent_end", async (event, ctx) => {
     if (turnMode === "plan-new" || turnMode === "plan-continue") {
       // Search assistant messages in REVERSE for "Ready to go?" marker.
       // This is the sole stable bridge between ? and $ modes.
@@ -493,6 +548,7 @@ Blocked command: ${command}`,
       // Restore all tools so the user can continue with normal chat
       // without first typing $ to unlock them.
       pi.setActiveTools(pi.getAllTools().map(t => t.name));
+      persistState(pi);
     }
 
     if (turnMode === "executing" && todoItems.length > 0) {
@@ -507,19 +563,62 @@ Blocked command: ${command}`,
         todoItems = [];
         planFullText = "";
         lastTurnHadPlan = false;
+        // Clear progress UI
+        updateProgressUI(ctx);
       }
     }
 
     turnMode = null;
     hasAdjustment = false;
+    persistState(pi);
   });
 
   // ──────────────────────────────────────
-  //  session_start — install custom editor
+  //  session_start — reset state, restore, install editor
   // ──────────────────────────────────────
 
   pi.on("session_start", async (_event, ctx) => {
-    ctx.ui.setEditorComponent((tui, theme, keybindings) => {
+    // Reset all module-level state first to prevent cross-session leaks
+    resetState();
+
+    // Restore persisted state from session entries (survives /resume)
+    const entries = ctx.sessionManager.getEntries();
+    const planModeEntry = entries
+      .filter((e: any) => e.type === "custom" && e.customType === "plan-mode")
+      .pop() as { data?: { lastTurnHadPlan?: boolean; todoItems?: TodoItem[]; planFullText?: string } } | undefined;
+
+    if (planModeEntry?.data) {
+      lastTurnHadPlan = planModeEntry.data.lastTurnHadPlan ?? false;
+      todoItems = planModeEntry.data.todoItems ?? [];
+      planFullText = planModeEntry.data.planFullText ?? "";
+
+      // On resume: re-scan assistant messages after last execution marker
+      // to rebuild [DONE:n] completion state
+      if (lastTurnHadPlan && todoItems.length > 0) {
+        let executeIndex = -1;
+        for (let i = entries.length - 1; i >= 0; i--) {
+          const entry = entries[i] as any;
+          if (entry.customType === "plan-execution-context") {
+            executeIndex = i;
+            break;
+          }
+        }
+        const allText: string[] = [];
+        for (let i = executeIndex + 1; i < entries.length; i++) {
+          const entry = entries[i];
+          if (entry.type === "message" && "message" in entry && isAssistantMessage((entry as any).message)) {
+            allText.push(getTextContent((entry as any).message));
+          }
+        }
+        if (allText.length > 0) {
+          markCompletedSteps(allText.join("\n"), todoItems);
+        }
+        updateProgressUI(ctx);
+      }
+    }
+
+    // Install custom editor
+    ctx.ui.setEditorComponent((tui: any, theme: any, keybindings: any) => {
       return new PlanModeEditor(tui, theme, keybindings);
     });
   });
