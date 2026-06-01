@@ -17,10 +17,12 @@ pi.zero/
 │   │   └── safe.ts          # Bash safety check in planning mode
 │   ├── git-commit/          # /git-commit — LLM-generated Conventional Commits
 │   │   └── index.ts         # Standalone LLM call, parses output, executes commit
-│   └── exit-command/        # /exit alias for /quit
-│       └── index.ts         # Registers /exit → ctx.shutdown()
-├── prompts/                 # Prompt templates (optional)
-└── skills/                  # Skills (optional)
+│   ├── command-mappings/     # Generic declarative command alias registry
+│   │   └── index.ts         # Define command aliases (/exit, etc.) declaratively
+│   └── focus-mode/          # Minimal, unobtrusive tool rendering
+│       └── index.ts         # Replaces green background Box with dim single-line tool calls
+├── prompts/                 # Prompt templates (optional, currently empty)
+└── skills/                  # Skills (optional, currently empty)
 ```
 
 ## Development Conventions

@@ -44,10 +44,28 @@ from staged changes via a direct LLM call (isolated from main session context), 
 executes the commit. Uses "caveman-commit" style — ultra-compressed, subject ≤50 chars,
 body only when the "why" isn't obvious. No AI attribution, no emoji, no fluff.
 
-### Exit — `/exit`
+### Command Mappings — Declarative Aliases
 
-A simple alias for the built-in `/quit` command. `ctx.shutdown()` is called immediately
-on `/exit`, providing a more intuitive command name for shutting down pi.
+Registers command aliases via a declarative array in one extension, instead of creating
+one file per alias. Currently provides `/exit` as an alias for the built-in `/quit`.
+Add new mappings by appending entries to the `COMMAND_MAPPINGS` array.
+
+### Focus Mode — Minimal Tool Rendering
+
+Overrides all built-in tools (read, bash, edit, write, grep, find, ls) to replace the
+default green-background Box with a single dim-text line per tool call. Tool output is
+hidden entirely. Multiple consecutive tool calls appear flush together with no spacing.
+
+| Before (default) | After (focus mode) |
+|------------------|-------------------|
+| Green background Box per tool | Single `theme.fg("dim", ...)` line |
+| Tool call + output preview | Tool call only (1 line) |
+| 3+ lines per tool, spaced apart | 1 line per tool, flush together |
+
+**Usage:**
+- Load via `package.json` (enabled automatically)
+- Use `Ctrl+O` to fold/expand (results remain hidden with this override)
+- Use `Ctrl+T` to hide thinking blocks (in combination with `hideThinkingBlock` setting)
 
 ## Development
 
@@ -77,10 +95,12 @@ pi.zero/
 │   │   └── safe.ts          # Bash safety check in planning mode
 │   ├── git-commit/          # /git-commit — LLM-generated Conventional Commits
 │   │   └── index.ts         # Standalone LLM call, parses output, executes commit
-│   └── exit-command/        # /exit alias for /quit
-│       └── index.ts         # Registers /exit → ctx.shutdown()
-├── prompts/                 # Prompt templates (optional)
-└── skills/                  # Skills (optional)
+│   ├── command-mappings/     # Generic declarative command alias registry
+│   │   └── index.ts         # Define command aliases (/exit, etc.) declaratively
+│   └── focus-mode/          # Minimal, unobtrusive tool rendering
+│       └── index.ts         # Replaces green background Box with dim single-line tool calls
+├── prompts/                 # Prompt templates (optional, currently empty)
+└── skills/                  # Skills (optional, currently empty)
 ```
 
 ## License
