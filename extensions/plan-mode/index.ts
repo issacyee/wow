@@ -21,7 +21,7 @@ import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { AssistantMessage, TextContent } from "@earendil-works/pi-ai";
 
 import { isSafeCommand } from "./safe.ts";
-import { extractPlanItems, markCompletedSteps, detectPrimaryLocale, ACTION_MARKER, type TodoItem } from "./plan.ts";
+import { extractPlanItems, hasReadyMarker, markCompletedSteps, detectPrimaryLocale, ACTION_MARKER, type TodoItem } from "./plan.ts";
 
 // ── Constants ──
 
@@ -464,30 +464,30 @@ Blocked command: ${command}`,
 
   pi.on("agent_end", async (event) => {
     if (turnMode === "plan-new" || turnMode === "plan-continue") {
-      // Search assistant messages in REVERSE for the most recent plan.
-      // The AI may output a tentative plan early (before tool calls) then refine
-      // it later — the last occurrence is the latest version the user wants to execute.
-      // But it may also put the plan only in an early message with just a summary
-      // at the end, so we can't only check the very last message either.
-      let extracted: TodoItem[] = [];
-      let extractedText = "";
+      // Search assistant messages in REVERSE for "Ready to go?" marker.
+      // This is the sole stable bridge between ? and $ modes.
+      let hasReady = false;
+      let readyText = "";
       for (let i = event.messages.length - 1; i >= 0; i--) {
         const msg = event.messages[i];
         if (!isAssistantMessage(msg)) continue;
         const text = getTextContent(msg);
-        extracted = extractPlanItems(text);
-        if (extracted.length > 0) {
-          extractedText = text;
+        if (hasReadyMarker(text)) {
+          hasReady = true;
+          readyText = text;
           break;
         }
       }
-      if (extracted.length > 0) {
-        todoItems = extracted;
-        planFullText = extractedText;
+
+      if (hasReady) {
         lastTurnHadPlan = true;
+        planFullText = readyText;
+        // Extract numbered items for [DONE:n] progress tracking (optional)
+        todoItems = extractPlanItems(readyText);
       } else {
         lastTurnHadPlan = false;
         planFullText = "";
+        todoItems = [];
       }
 
       // Restore all tools so the user can continue with normal chat

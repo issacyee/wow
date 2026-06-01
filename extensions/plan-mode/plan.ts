@@ -22,6 +22,11 @@ export const ACTION_MARKER = "Ready to go?";
 /** Regex matching the marker line followed by the numbered step list */
 const ACTION_MARKER_RE = /^Ready to go\?\n([\s\S]*)/im;
 
+/** Check whether a message contains the "Ready to go?" plan completion marker */
+export function hasReadyMarker(text: string): boolean {
+  return /^Ready to go\?/im.test(text);
+}
+
 /** Detect primary language subtag from OS locale */
 export function detectPrimaryLocale(): string {
   try {
