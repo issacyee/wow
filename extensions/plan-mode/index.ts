@@ -7,6 +7,10 @@
  *   $       Execute the current plan
  *   $ <text> Execute the plan with adjustments
  *
+ * Chinese IME support: full-width ？ (U+FF1F) and ￥ (U+FFE5) entered at the
+ * start of the editor are automatically converted to ? and $, so users don't
+ * need to toggle between Chinese/English input methods.
+ *
  * Editor border colors:
  *   ? / ??  #f5a742 (orange)
  *   $        #5c9cf5 (blue)
@@ -63,6 +67,30 @@ class PlanModeEditor extends CustomEditor {
       configurable: true,
       enumerable: true,
     });
+  }
+
+  handleInput(data: string): void {
+    // Chinese IME: convert full-width prefix characters to half-width
+    // when typing at the start of the editor, so users don't need to
+    // toggle between Chinese/English input methods to use ?/??/$ commands.
+    if (data.length === 1 && (data === "\uFF1F" || data === "\uFFE5")) {
+      const text = this.getText();
+      const cursor = this.getCursor();
+
+      if (cursor.line === 0 && cursor.col === 0) {
+        // At the very beginning of input: ？ → ?, ￥ → $
+        super.handleInput(data === "\uFF1F" ? "?" : "$");
+        return;
+      }
+
+      // After an existing "?" to form "??" (e.g. ？ + ？ → ??)
+      if (data === "\uFF1F" && text === "?" && cursor.line === 0 && cursor.col === 1) {
+        super.handleInput("?");
+        return;
+      }
+    }
+
+    super.handleInput(data);
   }
 
   render(width: number): string[] {
