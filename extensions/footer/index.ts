@@ -46,16 +46,23 @@ function renderContextBar(percent: number | null): string {
   return color(bar);
 }
 
-function renderContextPercent(percent: number | null): string {
+function renderContextPercent(percent: number | null, contextWindow?: number): string {
   const pct = Math.round(Math.max(0, Math.min(100, percent ?? 0)));
   const color = pct > 80 ? RED : pct > 50 ? YELLOW : GREEN;
-  return color(` ${pct}%`);
+  const windowLabel = contextWindow ? `/${fmtContextWindow(contextWindow)}` : "";
+  return color(` ${pct}%${windowLabel}`);
 }
 
 // ── Token formatting ──
 
 function fmt(n: number): string {
   return n < 1000 ? `${n}` : `${(n / 1000).toFixed(1)}k`;
+}
+
+function fmtContextWindow(n: number): string {
+  if (n >= 1_000_000) return `${Math.round(n / 1_000_000)}M`;
+  if (n >= 1000) return `${Math.round(n / 1000)}k`;
+  return `${n}`;
 }
 
 // ── Extension ──
@@ -101,7 +108,8 @@ export default function footerExtension(pi: ExtensionAPI): void {
           // Context usage
           const usage = ctx.getContextUsage();
           const barDisplay = renderContextBar(usage?.percent ?? null);
-          const pctDisplay = renderContextPercent(usage?.percent ?? null);
+          const contextWindow = usage?.contextWindow ?? ctx.model?.contextWindow;
+          const pctDisplay = renderContextPercent(usage?.percent ?? null, contextWindow);
 
           // Token stats
           let input = 0, output = 0, cost = 0;
