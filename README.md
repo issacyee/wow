@@ -76,6 +76,20 @@ Custom tools can reuse the same dim rendering via shared utilities from `wow/ren
 - Use `Ctrl+O` to fold/expand (results remain hidden with this override)
 - Use `Ctrl+T` to hide thinking blocks (in combination with `hideThinkingBlock` setting)
 
+### Footer — Custom Status Bar
+
+Replaces the built-in footer with a custom two-line layout using a dedicated color palette:
+
+**Line 1**: working directory (yellow, clickable `file://` link) + git branch (purple) … LLM model + thinking level (green, right-aligned)
+
+**Line 2**: context usage progress bar (green → yellow → red) + percentage + token I/O (blue) + cost (yellow) … extension statuses (dim)
+
+The CWD path is shortened (`~/` for home) and rendered as an OSC 8 hyperlink for
+one-click open in supporting terminals. A 10-character Unicode progress bar (`█░`)
+shows context window usage at a glance — always visible, color-coded by threshold.
+When the terminal is narrow, the left side truncates to guarantee the model name
+stays visible on the right.
+
 ### WebFetch — Fetch Web Content
 
 Fetches content from a URL and converts to the requested format (markdown, text, or html).
@@ -110,7 +124,7 @@ it serves purely as an import source for common functions.
 |------------|---------|---------|
 | `locale.ts` | `detectLocale`, `detectPrimaryLocale`, `localeToDisplayName`, `buildLanguageInstruction`, `LOCALE_MAP` | locale, plan-mode |
 | `renderer.ts` | `createFocusRenderCall`, `focusRenderCall`, `focusRenderResult` | focus-mode, webfetch |
-| `paths.ts` | `shortenPath`, `linkPath`, `shortenCommand` | focus-mode |
+| `paths.ts` | `shortenPath`, `linkPath`, `shortenCommand` | focus-mode, footer |
 | `html.ts` | `convertHTMLToMarkdown`, `extractTextFromHTML`, `stripTags`, `isRasterImage`, `STRIP_TAGS` | webfetch |
 | `shell.ts` | `execOrNull`, `execWithError` | git-commit |
 
@@ -174,6 +188,8 @@ wow/
 │   │   └── renderer.ts      # Re-export from wow/renderer.ts (backward compatibility shim)
 │   └── webfetch/            # Fetch web content and convert to markdown/text/html
 │       └── index.ts         # Zero-dep webfetch tool using native fetch + regex HTML conversion
+├── footer/                  # Custom two-line footer with CWD hyperlink & context bar
+│   └── index.ts             # setFooter replacement with custom color palette
 ├── prompts/                 # Prompt templates (reserved, currently empty)
 └── skills/                  # Skills (reserved, currently empty)
 ```

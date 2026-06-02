@@ -33,6 +33,8 @@ wow/
 │   │   └── renderer.ts      # Re-export from wow/renderer.ts (backward compatibility shim)
 │   └── webfetch/            # Fetch web content and convert to markdown/text/html
 │       └── index.ts         # Zero-dep webfetch tool using native fetch + regex HTML conversion
+│   └── footer/              # Custom two-line footer with CWD hyperlink & context bar
+│       └── index.ts         # setFooter replacement with custom color palette
 ├── prompts/                 # Prompt templates (reserved, currently empty)
 └── skills/                  # Skills (reserved, currently empty)
 ```
@@ -113,6 +115,16 @@ File paths are rendered as OSC 8 `file://` hyperlinks (clickable in supported te
 ### webfetch
 
 Fetches content from a URL and converts to the requested format (markdown, text, or html). Uses Node.js native `fetch` — zero external dependencies. HTML conversion is handled by `convertHTMLToMarkdown()` and `extractTextFromHTML()` from `wow/html.ts`. Uses `createFocusRenderCall("webfetch")` from `wow/renderer.ts` for consistent dim rendering with clickable URL hyperlinks.
+
+### footer
+
+Replaces the built-in footer with a custom two-line layout using a dedicated color palette (green `#1faf7a`, yellow `#c9a84c`, red `#e8634f`, blue `#17dae7`, purple `#7a5ea0`):
+
+**Line 1** (left to right): CWD path as clickable OSC 8 `file://` hyperlink via `hyperlink()` from `pi-tui` and `shortenPath()` from `wow/paths.ts` (yellow) + git branch (purple) ... LLM model name + thinking level (green, right-aligned). Left side is truncated when space is insufficient to guarantee the model name stays visible.
+
+**Line 2** (left to right): context usage progress bar (`█░`, 10 chars, color by threshold: green <50%, yellow 50-80%, red >80%) + percentage (same color) + token input/output stats (blue) + cost (yellow) ... extension statuses (dim, right-aligned).
+
+Installed via `setFooter()` in `session_start`. Reacts to git branch changes via `footerData.onBranchChange()`. Context usage from `ctx.getContextUsage()`, thinking level from `pi.getThinkingLevel()`, token stats computed from `ctx.sessionManager.getBranch()`.
 
 ## Plan Mode Reference
 
