@@ -7,6 +7,7 @@
     "extensions": [
       "./extensions/wow/index.ts",
       "./extensions/locale/index.ts",
+      "./extensions/editor-style/index.ts",
       "./extensions/plan-mode/index.ts",
       "./extensions/git-commit/index.ts",
       "./extensions/command-mappings/index.ts",

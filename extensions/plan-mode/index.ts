@@ -16,7 +16,8 @@
  *   $        #5c9cf5 (blue)
  */
 
-import { CustomEditor, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { type ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { StyledEditor } from "../editor-style/index.ts";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { AssistantMessage, TextContent } from "@earendil-works/pi-ai";
 
@@ -218,7 +219,7 @@ function getTextContent(message: AssistantMessage): string {
 
 // ── Custom editor (border color by input prefix) ──
 
-class PlanModeEditor extends CustomEditor {
+class PlanModeEditor extends StyledEditor {
   private planBorderColor: (str: string) => string;
   private execBorderColor: (str: string) => string;
   /** Native border color set by the framework (thinking level, bash mode) */
