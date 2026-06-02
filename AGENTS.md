@@ -22,7 +22,7 @@ wow/
 │   │   └── index.ts         # Detects locale → injects language directive into each AI turn
 │   ├── plan-mode/           # ?/??/$ plan mode extension
 │   │   ├── index.ts         # Entry: prefix detection, context injection, tool interception, custom editor
-│   │   ├── plan.ts          # Plan item extraction, [DONE:n] tracking, text cleanup, i18n locale detection
+│   │   ├── plan.ts          # Plan item extraction, [DONE:n] tracking, plan structure fallback detection, text cleanup, i18n locale detection
 │   │   └── safe.ts          # Bash destructive-pattern whitelist (planning mode safety)
 │   ├── git-commit/          # /git-commit — LLM-generated Conventional Commits
 │   │   └── index.ts         # Standalone LLM call, parses output, executes commit via temp file
@@ -89,7 +89,7 @@ A multi-phase planning workflow triggered by `?`/`??`/`$` input prefixes.
 3. **Review & Write** — output structured plan with Background / Approach / Files to Modify / Verification sections
 
 **Key mechanics:**
-- `ACTION_MARKER` (`"Ready to go?"`) is the stable bridge between plan mode and execution mode — detected in reverse-scanned assistant messages at `agent_end`
+- `ACTION_MARKER` (`"Ready to go?"`) is the primary bridge between plan mode and execution mode — detected in reverse-scanned assistant messages at `agent_end`. Fallback: if the marker is missing, `hasPlanStructure()` detects `## <word>:` headers (Plan:, 计划:, etc.) to still capture the plan. The `$` input handler also attempts recovery from session entries when no plan is detected in memory.
 - `[DONE:n]` markers in AI responses are tracked via `markCompletedSteps()` to show progress during `$` execution
 - Plan prompts are localized (zh/en) via `PLAN_LOCALES` and `getPlanLocale()`, detecting locale from `detectPrimaryLocale()` in `wow/locale.ts`
 - Tool restriction in planning mode: only read-only tools allowed (read, grep, find, ls, webfetch); `edit`/`write` blocked, bash filtered through `safe.ts` pattern list

@@ -21,7 +21,7 @@ import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { AssistantMessage, TextContent } from "@earendil-works/pi-ai";
 
 import { isSafeCommand } from "./safe.ts";
-import { extractPlanItems, hasReadyMarker, markCompletedSteps, detectPrimaryLocale, ACTION_MARKER, type TodoItem } from "./plan.ts";
+import { extractPlanItems, hasReadyMarker, hasPlanStructure, extractPlanText, markCompletedSteps, detectPrimaryLocale, ACTION_MARKER, type TodoItem } from "./plan.ts";
 
 // ── Constants ──
 
@@ -385,9 +385,28 @@ export default function planModeExtension(pi: ExtensionAPI): void {
     if (event.text.startsWith("$")) {
       const text = event.text.slice(1).trim();
       if (!lastTurnHadPlan && todoItems.length === 0) {
-        ctx.ui.notify("No active plan to execute", "info");
-        turnMode = null;
-        return { action: "handled" };
+        // Fallback: try to recover plan from recent assistant messages in session.
+        // This handles edge cases where agent_end detection failed but a plan exists.
+        const entries = ctx.sessionManager.getEntries();
+        let recovered = false;
+        for (let i = entries.length - 1; i >= 0; i--) {
+          const entry = entries[i] as any;
+          if (entry.type === "message" && "message" in entry && isAssistantMessage(entry.message)) {
+            const msgText = getTextContent(entry.message);
+            if (hasReadyMarker(msgText) || hasPlanStructure(msgText)) {
+              lastTurnHadPlan = true;
+              planFullText = hasReadyMarker(msgText) ? msgText : extractPlanText(msgText);
+              todoItems = extractPlanItems(msgText);
+              recovered = true;
+              break;
+            }
+          }
+        }
+        if (!recovered) {
+          ctx.ui.notify("No active plan to execute. Use ? to create a plan first.", "info");
+          turnMode = null;
+          return { action: "handled" };
+        }
       }
       turnMode = "executing";
       hasAdjustment = text.length > 0;
@@ -520,7 +539,7 @@ Blocked command: ${command}`,
   pi.on("agent_end", async (event, ctx) => {
     if (turnMode === "plan-new" || turnMode === "plan-continue") {
       // Search assistant messages in REVERSE for "Ready to go?" marker.
-      // This is the sole stable bridge between ? and $ modes.
+      // This is the primary stable bridge between ? and $ modes.
       let hasReady = false;
       let readyText = "";
       for (let i = event.messages.length - 1; i >= 0; i--) {
@@ -540,9 +559,29 @@ Blocked command: ${command}`,
         // Extract numbered items for [DONE:n] progress tracking (optional)
         todoItems = extractPlanItems(readyText);
       } else {
-        lastTurnHadPlan = false;
-        planFullText = "";
-        todoItems = [];
+        // Fallback: check if the last assistant message contains a plan structure
+        // (## <word>: header). This handles cases where the LLM generated a valid
+        // plan but omitted the "Ready to go?" marker (token truncation, model variance).
+        let fallbackPlanText = "";
+        for (let i = event.messages.length - 1; i >= 0; i--) {
+          const msg = event.messages[i];
+          if (!isAssistantMessage(msg)) continue;
+          const text = getTextContent(msg);
+          if (hasPlanStructure(text)) {
+            fallbackPlanText = text;
+            break;
+          }
+        }
+
+        if (fallbackPlanText) {
+          lastTurnHadPlan = true;
+          planFullText = extractPlanText(fallbackPlanText);
+          todoItems = extractPlanItems(fallbackPlanText);
+        } else {
+          lastTurnHadPlan = false;
+          planFullText = "";
+          todoItems = [];
+        }
       }
 
       // Restore all tools so the user can continue with normal chat

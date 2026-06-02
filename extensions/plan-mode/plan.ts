@@ -24,11 +24,30 @@ const LOCALE_PREFIX_PATTERNS: Record<string, RegExp[]> = {
 export const ACTION_MARKER = "Ready to go?";
 
 /** Regex matching the marker line followed by the numbered step list */
-const ACTION_MARKER_RE = /^Ready to go\?\n([\s\S]*)/im;
+const ACTION_MARKER_RE = /^\s*Ready to go\?\n([\s\S]*)/im;
 
 /** Check whether a message contains the "Ready to go?" plan completion marker */
 export function hasReadyMarker(text: string): boolean {
-  return /^Ready to go\?/im.test(text);
+  return /^\s*Ready to go\?/im.test(text);
+}
+
+/**
+ * Check whether a message contains a plan structure (## <word>: header).
+ * Locale-agnostic: matches Plan:, 计划:, プラン:, etc.
+ * Used as a fallback when "Ready to go?" marker is missing.
+ */
+export function hasPlanStructure(text: string): boolean {
+  return /^##\s+[^:\n]+:/m.test(text);
+}
+
+/**
+ * Extract the full plan text from an assistant message.
+ * Returns the text from the first "## <word>:" header to end, or the full text
+ * if no header is found. Used as fallback plan content when "Ready to go?" is missing.
+ */
+export function extractPlanText(text: string): string {
+  const match = text.match(/(##\s+[^:\n]+:[\s\S]*)/m);
+  return match ? match[1].trim() : text;
 }
 
 /** Clean step text: remove Markdown formatting, truncate long text */
