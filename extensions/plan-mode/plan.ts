@@ -5,6 +5,7 @@
  * - Clean step text for widget display
  */
 
+import removeMarkdown from "remove-markdown";
 import { detectPrimaryLocale } from "../wow/locale.ts";
 
 export { detectPrimaryLocale };
@@ -52,13 +53,17 @@ export function extractPlanText(text: string): string {
 
 /** Clean step text: remove Markdown formatting, truncate long text */
 export function cleanStepText(text: string): string {
-  let cleaned = text
-    .replace(/\*{1,2}([^*]+)\*{1,2}/g, "$1")
-    .replace(/`([^`]+)`/g, "$1")
-    .replace(
-      /^(Use|Run|Execute|Create|Write|Read|Check|Verify|Update|Modify|Add|Remove|Delete|Install)\s+(the\s+)?/i,
-      "",
-    );
+  let cleaned = removeMarkdown(text, {
+    stripListLeaders: false,
+    gfm: true,
+    useImgAltText: true,
+  });
+
+  // Remove leading action verbs (meaningless for widget display)
+  cleaned = cleaned.replace(
+    /^(Use|Run|Execute|Create|Write|Read|Check|Verify|Update|Modify|Add|Remove|Delete|Install)\s+(the\s+)?/i,
+    "",
+  );
 
   // Apply locale-specific prefix patterns
   const locale = detectPrimaryLocale();
@@ -107,8 +112,8 @@ export function extractPlanItems(message: string): TodoItem[] {
   const marked = extractMarkedPlanItems(message);
   if (marked) return marked;
 
-  // 2. Fall back to text-based plan header parsing
-  const planMatch = message.match(/^##\s+[^:]+:\s*[^\n]*\n([\s\S]*?)(?=\n---\s*\n|$)/m);
+  // 2. Fall back to text-based plan header parsing (no /m flag — $ must match end of string only)
+  const planMatch = message.match(/(?:^|\n)##\s+[^:]+:\s*[^\n]*\n([\s\S]*?)(?=\n---\s*\n|$)/);
   if (!planMatch) return [];
 
   // Extract numbered items from everything after the plan header

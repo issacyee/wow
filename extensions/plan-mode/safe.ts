@@ -2,10 +2,12 @@
  * Bash command safety check
  * In planning mode, only allow read-only commands, block everything else.
  *
- * Logic: extract the command name (first word) from each segment and check
- * it against a known-safe set. This avoids false positives from argument
- * names that happen to match safe commands (e.g. "touch file.txt" matching /\bfile\b/).
+ * Uses shell-quote for proper shell parsing (handles quotes, escapes,
+ * environment variables correctly — no more regex splitting vulnerable
+ * to injected shell operators in quoted strings).
  */
+
+import { parse } from "shell-quote";
 
 // ── Safe command definitions ──
 
@@ -84,38 +86,27 @@ function isSafeGitConfig(args: string[]): boolean {
   return args.length > 0 && (args[0] === "--get" || args[0] === "--list");
 }
 
-/**
- * Extract the command name (first word) from a shell segment.
- * Handles leading environment variable assignments (e.g. "VAR=val command args").
- */
-function extractCommandName(segment: string): string {
-  // Strip leading env assignments: "VAR=val " or "VAR=value "
-  const stripped = segment.replace(/^[A-Za-z_][A-Za-z0-9_]*=\S*\s*/, "");
-  // First word is the command
-  const match = stripped.match(/^(\S+)/);
-  return match ? match[1] : "";
-}
+// ── Token-based safety check (shell-quote powered) ──
 
 /**
- * Extract all words after the command name for subcommand checking.
+ * Check whether a token-based command segment is safe.
+ * Tokens are already parsed by shell-quote, so no string parsing needed.
  */
-function extractArgs(segment: string): string[] {
-  const stripped = segment.replace(/^[A-Za-z_][A-Za-z0-9_]*=\S*\s*/, "");
-  const parts = stripped.split(/\s+/);
-  // parts[0] is the command, parts[1..] are args
-  return parts.slice(1).filter((p) => p.length > 0);
-}
+function isSegmentSafeFromTokens(tokens: string[]): boolean {
+  if (tokens.length === 0) return false;
 
-/**
- * Check whether a single command segment is safe.
- */
-function isSegmentSafe(segment: string): boolean {
-  const cmd = extractCommandName(segment);
-  if (!cmd) return false;
+  // Skip leading environment variable assignments: VAR=val
+  let cmdIdx = 0;
+  while (cmdIdx < tokens.length && /^[A-Za-z_][A-Za-z0-9_]*=/.test(tokens[cmdIdx])) {
+    cmdIdx++;
+  }
+  if (cmdIdx >= tokens.length) return false;
+
+  const cmd = tokens[cmdIdx];
+  const args = tokens.slice(cmdIdx + 1);
 
   // ── git special handling ──
   if (cmd === "git") {
-    const args = extractArgs(segment);
     if (args.length === 0) return false;
     const subcmd = args[0];
 
@@ -133,7 +124,6 @@ function isSegmentSafe(segment: string): boolean {
   // ── Multi-word commands (npm, yarn, etc.) ──
   const multipart = SAFE_MULTIPART[cmd];
   if (multipart) {
-    const args = extractArgs(segment);
     if (args.length === 0) return false;
     const subcmd = args[0];
 
@@ -152,22 +142,55 @@ function isSegmentSafe(segment: string): boolean {
 /**
  * Check whether a command is safe (matches a known read-only pattern).
  *
- * Strategy: split compound commands on `&&`, `||`, `;`, `|` and check each
- * segment independently. The overall command is safe only if every segment
- * is safe.
+ * Uses shell-quote to properly parse shell syntax. Quoted strings are
+ * preserved as single tokens, preventing attackers from injecting
+ * operators inside quotes to bypass the allowlist.
+ *
+ * Strategy: parse the command, split on shell operators (; | || &&),
+ * reject redirections (> >> < <<), and check each segment independently.
  */
 export function isSafeCommand(command: string): boolean {
-  // Reject redirections
-  if (/>>/.test(command)) return false;
-  if (/(^|[^>])>(?!>)/.test(command)) return false;
+  let tokens: ReturnType<typeof parse>;
+  try {
+    tokens = parse(command);
+  } catch {
+    // If shell-quote can't parse it, don't allow it
+    return false;
+  }
 
-  // Split compound commands into individual segments
-  const segments = command
-    .split(/\s*(?:&&|\|\||[;|])\s*/)
-    .map((s) => s.trim())
-    .filter((s) => s.length > 0);
+  // Reject redirections and here-strings
+  for (const token of tokens) {
+    if (typeof token === "object" && "op" in token) {
+      if (token.op === ">" || token.op === ">>" || token.op === "<" || token.op === "<<") {
+        return false;
+      }
+    }
+  }
 
-  if (segments.length === 0) return false;
+  // Group tokens into segments separated by shell operators (; | || &&)
+  let currentSegmentTokens: string[] = [];
 
-  return segments.every(isSegmentSafe);
+  for (const token of tokens) {
+    if (typeof token === "object" && "op" in token) {
+      // Shell operator — check the accumulated segment
+      if (currentSegmentTokens.length > 0) {
+        if (!isSegmentSafeFromTokens(currentSegmentTokens)) return false;
+        currentSegmentTokens = [];
+      }
+      continue;
+    }
+
+    if (typeof token === "string") {
+      currentSegmentTokens.push(token);
+    }
+    // Pattern tokens (globs like *.ts), comment tokens, and other
+    // non-string tokens are arguments — skip them silently
+  }
+
+  // Check the last segment
+  if (currentSegmentTokens.length > 0) {
+    if (!isSegmentSafeFromTokens(currentSegmentTokens)) return false;
+  }
+
+  return true;
 }

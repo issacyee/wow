@@ -2,9 +2,15 @@
   "name": "wow",
   "version": "0.1.0",
   "description": "Wow — a foundational pi package for daily AI coding workflows",
-  "keywords": ["pi-package", "workflow", "plan-mode"],
+  "keywords": [
+    "pi-package",
+    "workflow",
+    "plan-mode"
+  ],
   "dependencies": {
-    "node-html-markdown": "^2.0.0"
+    "node-html-markdown": "^2.0.0",
+    "remove-markdown": "^0.6.4",
+    "shell-quote": "^1.8.4"
   },
   "pi": {
     "extensions": [
@@ -19,7 +25,11 @@
       "./extensions/prefix-cache/index.ts",
       "./extensions/footer/index.ts"
     ],
-    "skills": ["./skills"],
-    "prompts": ["./prompts"]
+    "skills": [
+      "./skills"
+    ],
+    "prompts": [
+      "./prompts"
+    ]
   }
 }
