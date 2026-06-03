@@ -28,16 +28,17 @@ A multi-phase planning workflow that prompts the AI to explore, design, and then
 - **Multi-phase workflow**: new plans go through Understand → Design → Review & Write phases before producing the final plan
 - **Localized prompts**: plan prompts are generated in the user's OS language (zh/en supported) for natural reading experience
 - **Editor border colors**: orange (`#f5a742`) in `?` / `??` mode, blue (`#5c9cf5`) in `$` execution mode — visual feedback for the current mode
-- **Read-only safety**: planning mode automatically blocks `edit` / `write` tools and dangerous bash commands, preventing accidental modifications
+- **Read-only safety**: planning mode blocks `edit` / `write` tools and dangerous bash commands via runtime `tool_call` gates, preventing accidental modifications without changing the active tool schema
 - **Progress tracking**: `[DONE:n]` markers in AI responses are recognized automatically; a completion summary is emitted when all steps are done
 - **Chinese IME friendly**: Full-width `？` `！` `￥` typed at the start of the editor
   are automatically converted to `?` `!` `$` — no need to switch input methods
 
-### Locale — Automatic Language Detection
+### Locale — Stable Same-Language Policy
 
-Detects the OS language via `Intl.DateTimeFormat` at runtime and injects a language
-instruction into every AI turn via `before_agent_start`. The AI always responds in
-the user's native language without needing manual prompting.
+Adds a byte-stable language policy to the system prompt: reply in the same language
+the user is using, while preserving technical identifiers exactly. The extension no
+longer injects OS-specific hidden messages every turn, which keeps the prompt prefix
+stable for provider prefix-cache/APC systems.
 
 ### Git Commit — `/git-commit`
 
@@ -76,13 +77,28 @@ Custom tools can reuse the same dim rendering via shared utilities from `wow/ren
 - Use `Ctrl+O` to fold/expand (results remain hidden with this override)
 - Use `Ctrl+T` to hide thinking blocks (in combination with `hideThinkingBlock` setting)
 
+### Prefix Cache — Reasonix-Style Prompt Stability
+
+Optimizes provider prefix-cache hit rate, especially for DeepSeek/OpenAI-compatible
+reasoning models:
+
+- Strips assistant `thinking` / `reasoning_content` from the provider context copy while preserving it in the local session/UI
+- Canonicalizes OpenAI-compatible provider tool schemas and sorts tools by name for deterministic payload bytes
+- Caps text tool results at 32KB in LLM context and saves oversized full output to a temp file
+- Keeps plan-mode from switching active tools; safety is enforced by `tool_call` gates instead
+- Provides `/cache-stats` for session cache usage and `/cache-doctor` for common stability problems
+
+**Development rule:** future extensions should avoid per-turn system prompt mutations,
+active tool switching, nondeterministic tool schemas, and oversized tool results.
+Put dynamic mode state in user/custom turn-tail messages or runtime gates instead.
+
 ### Footer — Custom Status Bar
 
 Replaces the built-in footer with a custom two-line layout using a dedicated color palette:
 
 **Line 1**: working directory (yellow, clickable `file://` link) + git branch (purple) … LLM model + thinking level (green, right-aligned)
 
-**Line 2**: context usage progress bar (green → yellow → red) + percentage + token I/O (blue) + cost (yellow) … extension statuses (dim)
+**Line 2**: context usage progress bar (green → yellow → red) + percentage + token I/O (blue) + cache hit rate (green) + cost (yellow) … extension statuses (dim)
 
 The CWD path is shortened (`~/` for home) and rendered as an OSC 8 hyperlink for
 one-click open in supporting terminals. A 10-character Unicode progress bar (`█░`)
@@ -100,9 +116,10 @@ regex for headings, lists, links, emphasis, code blocks, and tables.
 - User-Agent spoofing and Accept header negotiation for best content type
 - Cloudflare 403 bot-detection retry with honest UA fallback
 - 5MB response size limit, configurable timeout (default 30s, max 120s)
+- 32KB LLM-context output limit; full oversized output is saved to a temp file
 - Raster image detection with base64 encoding
 - URL parameters rendered as clickable hyperlinks in supported terminals
-- Available in plan-mode's read-only tool set (`?` phase)
+- Allowed during plan-mode exploration; write safety is enforced by runtime gates, not active-tool switching
 
 **Parameters:**
 
@@ -122,7 +139,7 @@ it serves purely as an import source for common functions.
 
 | Sub-module | Exports | Used by |
 |------------|---------|---------|
-| `locale.ts` | `detectLocale`, `detectPrimaryLocale`, `localeToDisplayName`, `buildLanguageInstruction`, `LOCALE_MAP` | locale, plan-mode |
+| `locale.ts` | `detectLocale`, `detectPrimaryLocale`, `localeToDisplayName`, `buildLanguageInstruction`, `buildStableLanguagePolicy`, `LOCALE_MAP` | locale, plan-mode |
 | `renderer.ts` | `createFocusRenderCall`, `focusRenderCall`, `focusRenderResult` | focus-mode, webfetch |
 | `paths.ts` | `shortenPath`, `linkPath`, `shortenCommand` | focus-mode, footer |
 | `html.ts` | `convertHTMLToMarkdown`, `extractTextFromHTML`, `stripTags`, `isRasterImage`, `STRIP_TAGS` | webfetch |
@@ -152,10 +169,11 @@ import { detectLocale, createFocusRenderCall, shortenPath } from "../wow/index.t
 
 ### Conventions
 
-- **Dialogue**: user-AI communication uses the OS locale language
+- **Dialogue**: user-AI communication follows the user's current language
 - **Technical content**: code, comments, config, documentation, commit messages use English
 - **Code style**: TypeScript, following existing conventions
 - **Shared utilities**: all reusable functions live in `extensions/wow/` — import from there, don't duplicate
+- **Prefix-cache safety**: do not add per-turn timestamps/random IDs/locale-specific text to the system prompt; do not switch active tools for modes; truncate custom tool output before returning it to the LLM
 
 ### Project Structure
 
@@ -168,13 +186,13 @@ wow/
 ├── extensions/
 │   ├── wow/                 # Base extension — shared utilities
 │   │   ├── index.ts         # Extension entry (no-op), unified re-export of all sub-modules
-│   │   ├── locale.ts        # OS language detection (detectLocale, detectPrimaryLocale, LOCALE_MAP)
+│   │   ├── locale.ts        # Locale detection and stable language policy utilities
 │   │   ├── renderer.ts      # Focus-style dim rendering (createFocusRenderCall, focusRenderResult)
 │   │   ├── paths.ts         # Path shortening & OSC 8 hyperlink (shortenPath, linkPath, shortenCommand)
 │   │   ├── html.ts          # HTML → Markdown/Text conversion (convertHTMLToMarkdown, extractTextFromHTML)
 │   │   └── shell.ts         # Sync command execution wrappers (execOrNull, execWithError)
-│   ├── locale/              # OS language detection (injects language instruction via before_agent_start)
-│   │   └── index.ts         # Detects locale → injects language directive into each AI turn
+│   ├── locale/              # Stable same-language policy
+│   │   └── index.ts         # Appends byte-stable language policy to system prompt
 │   ├── plan-mode/           # ?/??/$ plan mode extension
 │   │   ├── index.ts         # Entry: prefix detection, context injection, tool interception, custom editor
 │   │   ├── plan.ts          # Plan item extraction, [DONE:n] tracking, text cleanup, i18n locale detection
@@ -186,10 +204,15 @@ wow/
 │   ├── focus-mode/          # Minimal, unobtrusive tool rendering
 │   │   ├── index.ts         # Overrides 7 built-in tools with dim single-line rendering
 │   │   └── renderer.ts      # Re-export from wow/renderer.ts (backward compatibility shim)
-│   └── webfetch/            # Fetch web content and convert to markdown/text/html
-│       └── index.ts         # Zero-dep webfetch tool using native fetch + regex HTML conversion
-├── footer/                  # Custom two-line footer with CWD hyperlink & context bar
-│   └── index.ts             # setFooter replacement with custom color palette
+│   ├── webfetch/            # Fetch web content and convert to markdown/text/html
+│   │   └── index.ts         # Zero-dep webfetch tool using native fetch + regex HTML conversion
+│   ├── prefix-cache/        # Reasonix-style prefix-cache optimizations and diagnostics
+│   │   ├── index.ts         # Reasoning stripping, schema canonicalization, cache commands
+│   │   ├── reasoning.ts     # Provider/model allowlist and thinking block removal
+│   │   ├── schema.ts        # Deterministic JSON/schema canonicalization
+│   │   └── stats.ts         # Cache/diagnostic stats helpers
+│   └── footer/              # Custom two-line footer with CWD hyperlink & context/cache bar
+│       └── index.ts         # setFooter replacement with custom color palette
 ├── prompts/                 # Prompt templates (reserved, currently empty)
 └── skills/                  # Skills (reserved, currently empty)
 ```

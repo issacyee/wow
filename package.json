@@ -13,6 +13,7 @@
       "./extensions/command-mappings/index.ts",
       "./extensions/focus-mode/index.ts",
       "./extensions/webfetch/index.ts",
+      "./extensions/prefix-cache/index.ts",
       "./extensions/footer/index.ts"
     ],
     "skills": ["./skills"],

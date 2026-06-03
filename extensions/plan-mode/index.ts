@@ -24,11 +24,6 @@ import type { AssistantMessage, TextContent } from "@earendil-works/pi-ai";
 import { isSafeCommand } from "./safe.ts";
 import { extractPlanItems, hasReadyMarker, hasPlanStructure, extractPlanText, markCompletedSteps, detectPrimaryLocale, ACTION_MARKER, type TodoItem } from "./plan.ts";
 
-// ── Constants ──
-
-/** Read-only tools available in planning mode */
-const PLANNING_TOOLS = ["read", "grep", "find", "ls", "webfetch", "questionnaire"];
-
 // ── Plan locale i18n ──
 
 interface PlanLocale {
@@ -359,11 +354,9 @@ export default function planModeExtension(pi: ExtensionAPI): void {
       }
       if (lastTurnHadPlan || todoItems.length > 0) {
         turnMode = "plan-continue";
-        pi.setActiveTools(PLANNING_TOOLS);
       } else {
         // No previous plan, fallback to new plan
         turnMode = "plan-new";
-        pi.setActiveTools(PLANNING_TOOLS);
         todoItems = [];
         planFullText = "";
       }
@@ -379,7 +372,6 @@ export default function planModeExtension(pi: ExtensionAPI): void {
       turnMode = "plan-new";
       todoItems = [];
       planFullText = "";
-      pi.setActiveTools(PLANNING_TOOLS);
       return { action: "transform", text };
     }
 
@@ -411,7 +403,6 @@ export default function planModeExtension(pi: ExtensionAPI): void {
       }
       turnMode = "executing";
       hasAdjustment = text.length > 0;
-      pi.setActiveTools(pi.getAllTools().map(t => t.name));
       return { action: "transform", text };
     }
 
@@ -585,9 +576,8 @@ Blocked command: ${command}`,
         }
       }
 
-      // Restore all tools so the user can continue with normal chat
-      // without first typing $ to unlock them.
-      pi.setActiveTools(pi.getAllTools().map(t => t.name));
+      // Prefix-cache rule: planning mode never changes the active tool set.
+      // Read-only safety is enforced by the tool_call gate below instead.
       persistState(pi);
     }
 

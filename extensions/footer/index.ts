@@ -2,7 +2,7 @@
  * Footer — custom two-line footer with clickable CWD and context usage bar
  *
  * Line 1: CWD (yellow) | git branch (purple) ... LLM model (green, right-aligned)
- * Line 2: context bar (green/yellow/red) | percent | tokens (blue) | cost (yellow)
+ * Line 2: context bar (green/yellow/red) | percent | tokens (blue) | cache hit (green) | cost (yellow)
  *
  * Color palette:
  *   green  #1faf7a — LLM model, low context usage
@@ -12,10 +12,10 @@
  *   purple #7a5ea0 — git branch
  */
 
-import type { AssistantMessage } from "@earendil-works/pi-ai";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { hyperlink, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { shortenPath } from "../wow/paths.ts";
+import { collectCacheStats } from "../prefix-cache/stats.ts";
 
 // ── Color palette ──
 
@@ -111,19 +111,13 @@ export default function footerExtension(pi: ExtensionAPI): void {
           const contextWindow = usage?.contextWindow ?? ctx.model?.contextWindow;
           const pctDisplay = renderContextPercent(usage?.percent ?? null, contextWindow);
 
-          // Token stats
-          let input = 0, output = 0, cost = 0;
-          for (const e of ctx.sessionManager.getBranch()) {
-            if (e.type === "message" && (e.message as AssistantMessage).role === "assistant") {
-              const m = e.message as AssistantMessage;
-              input += m.usage.input;
-              output += m.usage.output;
-              cost += m.usage.cost.total;
-            }
-          }
-
-          const tokenDisplay = BLUE(` ↑${fmt(input)} ↓${fmt(output)}`);
-          const costDisplay = YELLOW(` $${cost.toFixed(3)}`);
+          // Token/cache stats
+          const cacheStats = collectCacheStats(ctx.sessionManager.getBranch());
+          const tokenDisplay = BLUE(` ↑${fmt(cacheStats.input)} ↓${fmt(cacheStats.output)}`);
+          const cacheDisplay = cacheStats.hitRate === null
+            ? ""
+            : GREEN(` ⚡${Math.round(cacheStats.hitRate * 100)}%`);
+          const costDisplay = YELLOW(` $${cacheStats.cost.toFixed(3)}`);
 
           // Extension statuses (right side of line 2)
           const statuses = footerData.getExtensionStatuses();
@@ -133,8 +127,8 @@ export default function footerExtension(pi: ExtensionAPI): void {
           }
           const statusDisplay = statusTexts.length > 0 ? DIM(statusTexts.join(" ")) : "";
 
-          // Line 2: bar + percent + tokens + cost (left) ... statuses (right)
-          const line2Left = barDisplay + pctDisplay + tokenDisplay + costDisplay;
+          // Line 2: bar + percent + tokens + cache hit + cost (left) ... statuses (right)
+          const line2Left = barDisplay + pctDisplay + tokenDisplay + cacheDisplay + costDisplay;
           const line2Right = statusDisplay;
           const line2Pad = " ".repeat(Math.max(1, width - visibleWidth(line2Left) - visibleWidth(line2Right)));
           const line2 = truncateToWidth(line2Left + line2Pad + line2Right, width);

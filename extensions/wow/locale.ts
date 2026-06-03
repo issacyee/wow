@@ -64,9 +64,23 @@ export function localeToDisplayName(locale: string): string {
   return LOCALE_MAP[locale] ?? LOCALE_MAP[locale.split("-")[0]] ?? "English";
 }
 
-/** Build the language instruction string injected into agent turns */
+/** Build the legacy locale-specific instruction string. Prefer buildStableLanguagePolicy() for LLM context. */
 export function buildLanguageInstruction(): string {
   const locale = detectLocale();
   const displayName = localeToDisplayName(locale);
   return `[LANGUAGE] The user's OS language is ${displayName}. All your responses, including plans, explanations, and dialogue, must be written in ${displayName}.`;
+}
+
+/**
+ * Build a byte-stable language policy for the system prompt.
+ *
+ * Prefix-cache rule: do not inject OS locale names into every turn. A generic
+ * same-language policy stays identical across turns and still follows the user.
+ */
+export function buildStableLanguagePolicy(): string {
+  return [
+    "[LANGUAGE]",
+    "Reply in the same language the user is using.",
+    "For technical identifiers, code, paths, commands, and commit messages, keep the original language and exact spelling.",
+  ].join("\n");
 }

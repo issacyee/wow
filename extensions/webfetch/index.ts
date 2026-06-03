@@ -10,6 +10,10 @@
  *   timeout — Optional timeout in seconds (max 120)
  */
 
+import { mkdtemp, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
 import { defineTool, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { StringEnum, Type } from "@earendil-works/pi-ai";
 import { createFocusRenderCall, focusRenderResult } from "../wow/renderer.ts";
@@ -21,9 +25,29 @@ import {
 
 // ── Constants ──
 
-const MAX_RESPONSE_SIZE = 5 * 1024 * 1024; // 5MB
+const MAX_RESPONSE_SIZE = 5 * 1024 * 1024; // 5MB fetch limit
+const MAX_CONTEXT_OUTPUT_SIZE = 32 * 1024; // 32KB sent back to the LLM
 const DEFAULT_TIMEOUT = 30 * 1000; // 30 seconds
 const MAX_TIMEOUT = 120 * 1000; // 2 minutes
+
+// ── Output truncation ──
+
+async function truncateForContext(output: string): Promise<{ text: string; truncated: boolean; fullOutputPath?: string }> {
+  const bytes = Buffer.byteLength(output, "utf8");
+  if (bytes <= MAX_CONTEXT_OUTPUT_SIZE) {
+    return { text: output, truncated: false };
+  }
+
+  const dir = await mkdtemp(join(tmpdir(), "pi-webfetch-"));
+  const fullOutputPath = join(dir, "output.txt");
+  await writeFile(fullOutputPath, output, "utf8");
+
+  const marker = `\n\n[webfetch output truncated: ${MAX_CONTEXT_OUTPUT_SIZE} bytes of ${bytes} bytes.\nFull output saved to: ${fullOutputPath}]`;
+  const headBudget = Math.max(0, MAX_CONTEXT_OUTPUT_SIZE - Buffer.byteLength(marker, "utf8"));
+  const head = new TextDecoder().decode(Buffer.from(output, "utf8").subarray(0, headBudget));
+
+  return { text: head + marker, truncated: true, fullOutputPath };
+}
 
 // ── Tool definition ──
 
@@ -41,7 +65,7 @@ const webfetchTool = defineTool({
     '  - The URL must be a fully-formed valid URL starting with http:// or https://',
     '  - Format options: "markdown" (default), "text", or "html"',
     "  - This tool is read-only and does not modify any files",
-    "  - Results may be summarized if the content is very large",
+    "  - Results are truncated to 32KB in LLM context; full output is saved to a temp file when truncated",
   ].join("\n"),
   promptSnippet: "Fetch web content from a URL and return as markdown, text, or html",
   promptGuidelines: [
@@ -207,9 +231,17 @@ const webfetchTool = defineTool({
         output = content;
     }
 
+    const truncated = await truncateForContext(output);
+
     return {
-      content: [{ type: "text" as const, text: output }],
-      details: { url: params.url, contentType, format: params.format },
+      content: [{ type: "text" as const, text: truncated.text }],
+      details: {
+        url: params.url,
+        contentType,
+        format: params.format,
+        truncated: truncated.truncated,
+        fullOutputPath: truncated.fullOutputPath,
+      },
     };
   },
 

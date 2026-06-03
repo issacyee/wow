@@ -24,6 +24,7 @@ export {
   detectPrimaryLocale,
   localeToDisplayName,
   buildLanguageInstruction,
+  buildStableLanguagePolicy,
   LOCALE_MAP,
 } from "./locale.ts";
 

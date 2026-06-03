@@ -1,26 +1,21 @@
 /**
- * Locale — detect OS language and inject it into AI context
+ * Locale — byte-stable language policy
  *
- * The AI cannot query the OS locale itself. This extension detects the user's
- * OS language at runtime via Intl.DateTimeFormat and injects a language
- * instruction into every agent turn via before_agent_start, ensuring the AI
- * always responds in the user's language.
+ * Prefix-cache rule: do not inject OS-specific language messages into every
+ * turn. A generic same-language policy is appended to the system prompt with
+ * identical bytes each turn, while plan-mode may still use OS locale locally to
+ * choose human-readable plan templates.
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { buildLanguageInstruction } from "../wow/locale.ts";
+import { buildStableLanguagePolicy } from "../wow/locale.ts";
 
 // ── Extension entry ──
 
 export default function localeExtension(pi: ExtensionAPI): void {
-  pi.on("before_agent_start", async (_event) => {
-    const instruction = buildLanguageInstruction();
+  pi.on("before_agent_start", async (event) => {
     return {
-      message: {
-        customType: "locale-instruction",
-        content: instruction,
-        display: false,
-      },
+      systemPrompt: `${event.systemPrompt}\n\n${buildStableLanguagePolicy()}`,
     };
   });
 }
