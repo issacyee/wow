@@ -2,7 +2,7 @@
  * WebFetch Tool — fetch web content and convert to markdown/text/html
  *
  * Ported from opencode's built-in webfetch tool. Uses Node.js native fetch.
- * Zero external dependencies — HTML conversion is done with simple regex.
+ * HTML conversion powered by node-html-markdown (AST-based).
  *
  * Parameters:
  *   url     — The URL to fetch content from (required)

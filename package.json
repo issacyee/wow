@@ -3,6 +3,9 @@
   "version": "0.1.0",
   "description": "Wow — a foundational pi package for daily AI coding workflows",
   "keywords": ["pi-package", "workflow", "plan-mode"],
+  "dependencies": {
+    "node-html-markdown": "^2.0.0"
+  },
   "pi": {
     "extensions": [
       "./extensions/wow/index.ts",

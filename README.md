@@ -109,8 +109,8 @@ stays visible on the right.
 ### WebFetch — Fetch Web Content
 
 Fetches content from a URL and converts to the requested format (markdown, text, or html).
-Built on Node.js native `fetch` — zero external dependencies. HTML conversion uses inline
-regex for headings, lists, links, emphasis, code blocks, and tables.
+Built on Node.js native `fetch` — HTML conversion powered by node-html-markdown
+(AST-based) for reliable, high-quality output.
 
 **Features:**
 - User-Agent spoofing and Accept header negotiation for best content type
@@ -205,7 +205,7 @@ wow/
 │   │   ├── index.ts         # Overrides 7 built-in tools with dim single-line rendering
 │   │   └── renderer.ts      # Re-export from wow/renderer.ts (backward compatibility shim)
 │   ├── webfetch/            # Fetch web content and convert to markdown/text/html
-│   │   └── index.ts         # Zero-dep webfetch tool using native fetch + regex HTML conversion
+│   │   └── index.ts         # webfetch tool using native fetch + node-html-markdown HTML conversion
 │   ├── prefix-cache/        # Reasonix-style prefix-cache optimizations and diagnostics
 │   │   ├── index.ts         # Reasoning stripping, schema canonicalization, cache commands
 │   │   ├── reasoning.ts     # Provider/model allowlist and thinking block removal

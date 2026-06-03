@@ -32,7 +32,7 @@ wow/
 │   │   ├── index.ts         # Overrides 7 built-in tools with dim single-line rendering
 │   │   └── renderer.ts      # Re-export from wow/renderer.ts (backward compatibility shim)
 │   ├── webfetch/            # Fetch web content and convert to markdown/text/html
-│   │   └── index.ts         # Zero-dep webfetch tool using native fetch + regex HTML conversion
+│   │   └── index.ts         # webfetch tool using native fetch + node-html-markdown HTML conversion
 │   ├── prefix-cache/        # Reasonix-style prefix-cache optimizations and diagnostics
 │   │   ├── index.ts         # Reasoning stripping, schema canonicalization, cache commands
 │   │   ├── reasoning.ts     # Provider/model allowlist and thinking block removal
@@ -80,7 +80,7 @@ Sub-modules:
 - **locale.ts** — `detectLocale()`, `detectPrimaryLocale()`, `localeToDisplayName()`, `buildLanguageInstruction()`, `buildStableLanguagePolicy()`, `LOCALE_MAP`. Consolidated from `locale/` and `plan-mode/plan.ts`.
 - **renderer.ts** — `createFocusRenderCall()`, `focusRenderCall()`, `focusRenderResult()`. Dim-style TUI rendering for custom tools. Formerly `focus-mode/renderer.ts`.
 - **paths.ts** — `shortenPath()`, `linkPath()`, `shortenCommand()`. Path display utilities with OSC 8 hyperlink support. Extracted from `focus-mode/index.ts`.
-- **html.ts** — `convertHTMLToMarkdown()`, `extractTextFromHTML()`, `stripTags()`, `isRasterImage()`, `STRIP_TAGS`. Zero-dep HTML conversion. Extracted from `webfetch/index.ts`.
+- **html.ts** — `convertHTMLToMarkdown()`, `extractTextFromHTML()`, `stripTags()`, `isRasterImage()`, `STRIP_TAGS`. AST-based HTML conversion via node-html-markdown. Extracted from `webfetch/index.ts`.
 - **shell.ts** — `execOrNull()`, `execWithError()`. Synchronous command execution wrappers with error handling. Extracted from `git-commit/index.ts`.
 
 ### locale
