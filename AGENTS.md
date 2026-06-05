@@ -17,13 +17,19 @@ wow/
 │   │   ├── renderer.ts      # Focus-style dim rendering (createFocusRenderCall, focusRenderResult)
 │   │   ├── paths.ts         # Path shortening & OSC 8 hyperlink (shortenPath, linkPath, shortenCommand)
 │   │   ├── html.ts          # HTML → Markdown/Text conversion (convertHTMLToMarkdown, extractTextFromHTML)
-│   │   └── shell.ts         # Sync command execution wrappers (execOrNull, execWithError)
+│   │   ├── shell.ts         # Sync command execution wrappers (execOrNull, execWithError)
+│   │   └── safe.ts          # Read-only bash safety check (isSafeCommand)
 │   ├── locale/              # Stable same-language policy via before_agent_start
 │   │   └── index.ts         # Appends byte-stable language policy to the system prompt
-│   ├── plan-mode/           # ?/??/$ plan mode extension
-│   │   ├── index.ts         # Entry: prefix detection, context injection, tool interception, custom editor
-│   │   ├── plan.ts          # Plan item extraction, [DONE:n] tracking, plan structure fallback detection, text cleanup, i18n locale detection
-│   │   └── safe.ts          # Bash destructive-pattern whitelist (planning mode safety)
+│   ├── human-led-coding-workflow/ # ?/??/?!/$ human-led coding workflow
+│   │   ├── index.ts         # Prefix routing, context injection, tool gates, state persistence
+│   │   ├── prompts.ts       # Byte-stable discuss/plan/revise/execute prompts
+│   │   ├── plan.ts          # Plan detection, extraction, [DONE:n] tracking
+│   │   └── editor.ts        # Prefix colors and Chinese IME conversion
+│   ├── plan-mode/           # Legacy plan-mode source, not loaded by package.json
+│   │   ├── index.ts         # Legacy entry
+│   │   ├── plan.ts          # Legacy plan helpers
+│   │   └── safe.ts          # Backward-compatible shim to wow/safe.ts
 │   ├── git-commit/          # /git-commit — LLM-generated Conventional Commits
 │   │   └── index.ts         # Standalone LLM call, parses output, executes commit via temp file
 │   ├── command-mappings/    # Generic declarative command alias registry
@@ -66,9 +72,9 @@ and other technical content use English.
 - Run `/reload` or restart pi after editing extensions
 - **Shared utilities** live in `extensions/wow/` — import from there, don't duplicate
 - **Prefix-cache safety**: preserve byte-stable prompt prefixes. Do not add per-turn timestamps, random IDs, counters, or OS-locale strings to the system prompt. Do not switch active tools for modes; enforce permissions with `tool_call` gates. Truncate custom tool outputs before returning them to the LLM.
-- Keep the destructive patterns list in `safe.ts` comprehensive — omissions may cause data loss in plan mode
-- The custom editor (`PlanModeEditor`) is installed via `session_start` event and overrides `handleInput()` to convert full-width `？`/`！`/`￥` to half-width `?`/`!`/`$` at cursor position 0, so Chinese IME users don't need to toggle input method for plan-mode commands
-- The editor border color is intercepted via `Object.defineProperty` on `borderColor` to overlay mode-specific colors (orange/blue) while preserving the framework's native border color for thinking/bash mode
+- Keep the read-only bash allowlist in `extensions/wow/safe.ts` comprehensive — omissions may cause data loss in read-only workflow modes
+- The custom editor (`HumanLedWorkflowEditor`) is installed via `session_start` event and overrides `handleInput()` to convert full-width `？`/`！`/`￥` to half-width `?`/`!`/`$` at cursor position 0, so Chinese IME users don't need to toggle input method for workflow commands
+- The editor border color is intercepted via `Object.defineProperty` on `borderColor` to overlay mode-specific colors (purple/orange/yellow/blue) while preserving the framework's native border color for thinking/bash mode
 
 ## Extension Details
 
@@ -77,32 +83,39 @@ and other technical content use English.
 A pure utility layer with no runtime side effects. It registers nothing and serves as the centralized import source for shared functions used across all other extensions.
 
 Sub-modules:
-- **locale.ts** — `detectLocale()`, `detectPrimaryLocale()`, `localeToDisplayName()`, `buildLanguageInstruction()`, `buildStableLanguagePolicy()`, `LOCALE_MAP`. Consolidated from `locale/` and `plan-mode/plan.ts`.
+- **locale.ts** — `detectLocale()`, `detectPrimaryLocale()`, `localeToDisplayName()`, `buildLanguageInstruction()`, `buildStableLanguagePolicy()`, `LOCALE_MAP`. Shared locale and stable language policy helpers.
 - **renderer.ts** — `createFocusRenderCall()`, `focusRenderCall()`, `focusRenderResult()`. Dim-style TUI rendering for custom tools. Formerly `focus-mode/renderer.ts`.
 - **paths.ts** — `shortenPath()`, `linkPath()`, `shortenCommand()`. Path display utilities with OSC 8 hyperlink support. Extracted from `focus-mode/index.ts`.
 - **html.ts** — `convertHTMLToMarkdown()`, `extractTextFromHTML()`, `stripTags()`, `isRasterImage()`, `STRIP_TAGS`. AST-based HTML conversion via node-html-markdown. Extracted from `webfetch/index.ts`.
 - **shell.ts** — `execOrNull()`, `execWithError()`. Synchronous command execution wrappers with error handling. Extracted from `git-commit/index.ts`.
+- **safe.ts** — `isSafeCommand()`. Shared read-only bash allowlist used by workflow gates and legacy plan-mode shims.
 
 ### locale
 
 Appends a byte-stable `[LANGUAGE]` policy to the system prompt via `before_agent_start`: reply in the same language the user is using and preserve technical identifiers exactly. It intentionally avoids injecting OS-specific locale text into every turn. `detectLocale()` / `detectPrimaryLocale()` remain available for local UI/prompt-template choices, but LLM context should prefer `buildStableLanguagePolicy()`.
 
-### plan-mode
+### human-led-coding-workflow
 
-A multi-phase planning workflow triggered by `?`/`??`/`$` input prefixes.
+A human-led coding workflow triggered by `?`/`??`/`?!`/`$` input prefixes. Normal prompts keep pi's default behavior; workflow behavior only applies when a prefix is used.
 
-**Phases (new plan):**
-1. **Understand** — read-only codebase exploration (read, grep, find, ls, questionnaire)
-2. **Design** — converge on one recommended approach
-3. **Review & Write** — output structured plan with Background / Approach / Files to Modify / Verification sections
+**Modes:**
+1. **Discuss (`?`)** — analyze and discuss, with read-only exploration; do not write a plan unless the user asks with `??`.
+2. **Plan (`??`)** — create a new reviewable plan, replacing any active plan.
+3. **Revise (`?!`)** — revise the active plan from explicit human review feedback.
+4. **Execute (`$`)** — execute the active human-approved plan.
 
 **Key mechanics:**
-- `ACTION_MARKER` (`"Ready to go?"`) is the primary bridge between plan mode and execution mode — detected in reverse-scanned assistant messages at `agent_end`. Fallback: if the marker is missing, `hasPlanStructure()` detects `## <word>:` headers (Plan:, 计划:, etc.) to still capture the plan. The `$` input handler also attempts recovery from session entries when no plan is detected in memory.
-- `[DONE:n]` markers in AI responses are tracked via `markCompletedSteps()` to show progress during `$` execution
-- Plan prompts are localized (zh/en) via `PLAN_LOCALES` and `getPlanLocale()`, detecting locale from `detectPrimaryLocale()` in `wow/locale.ts`
-- Tool restriction in planning mode: active tools are not changed to preserve stable tool schemas; `edit`/`write` are blocked by `tool_call`, and bash is filtered through `safe.ts` pattern list
-- Editor border colors: orange (`#f5a742`) for `?`/`??`, blue (`#5c9cf5`) for `$`
-- State is module-level (`turnMode`, `todoItems`, `lastTurnHadPlan`, `planFullText`) — per-session, reset on `agent_end`
+- `EXECUTE_MARKER` (`"Ready to execute?"`) is the bridge between planning/revision and execution. Plans are captured from reverse-scanned assistant messages at `agent_end`.
+- Plans use Goals / Background / Key Decisions / Non-goals / Implementation Steps / Acceptance Criteria / Verification / Risks. There is no separate Files to Modify section in plans.
+- `[DONE:n]` markers in AI responses are tracked via `markCompletedSteps()` to show execution progress.
+- Discuss/plan/revise modes allow `read`, `grep`, `find`, `ls`, `webfetch`, and safe read-only `bash`; they block `edit`, `write`, unsafe bash, and unrelated tools.
+- Prefix-cache safety is a hard requirement: the extension never mutates the system prompt, never switches active tools, registers no dynamic tools, filters stale workflow context messages from provider context, and persists state via custom entries outside LLM context.
+- Editor border colors: purple for `?`, orange for `??`, yellow for `?!`, blue for `$`.
+- State is module-level (`turnMode`, `activePlan`, `todoItems`, `planFullText`) and restored from `human-led-coding-workflow` custom entries on `session_start`.
+
+### plan-mode
+
+Legacy source kept for compatibility/reference only. It is no longer loaded by `package.json`; `plan-mode/safe.ts` re-exports `isSafeCommand()` from `wow/safe.ts`.
 
 ### git-commit
 
@@ -143,14 +156,15 @@ Replaces the built-in footer with a custom two-line layout using a dedicated col
 
 Installed via `setFooter()` in `session_start`. Reacts to git branch changes via `footerData.onBranchChange()`. Context usage from `ctx.getContextUsage()`, thinking level from `pi.getThinkingLevel()`, token stats computed from `ctx.sessionManager.getBranch()`.
 
-## Plan Mode Reference
+## Human-Led Workflow Reference
 
 | Input | Behavior |
 |-------|----------|
-| `? <text>` | Start a new plan, read-only exploration |
-| `?? <text>` | Continue/adjust the previous plan |
-| `$` | Execute the current plan |
-| `$ <text>` | Execute the plan with adjustments |
+| `? <text>` | Discuss/analyze only, read-only exploration |
+| `?? <text>` | Write a new reviewable plan |
+| `?! <text>` | Revise the active plan from explicit feedback |
+| `$` | Execute the active plan |
+| `$ <text>` | Execute the active plan with additional constraints |
 
 > **Chinese IME**: Full-width `？` `！` `￥` are automatically converted to `?` `!` `$`
 > when typed at the start of the editor — no need to switch input methods.

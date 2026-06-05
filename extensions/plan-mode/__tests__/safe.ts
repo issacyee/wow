@@ -53,7 +53,7 @@ test("du is safe", () => assert.ok(isSafeCommand("du -sh .")));
 test("tree is safe", () => assert.ok(isSafeCommand("tree -L 2")));
 test("which is safe", () => assert.ok(isSafeCommand("which node")));
 test("diff is safe", () => assert.ok(isSafeCommand("diff a.txt b.txt")));
-test("awk is safe", () => assert.ok(isSafeCommand("awk '{print $1}' file.txt")));
+test("awk is blocked", () => assert.ok(!isSafeCommand("awk '{print $1}' file.txt")));
 test("sort is safe", () => assert.ok(isSafeCommand("sort file.txt")));
 test("uniq is safe", () => assert.ok(isSafeCommand("uniq file.txt")));
 test("cloc is safe", () => assert.ok(isSafeCommand("cloc .")));
@@ -105,6 +105,10 @@ test("git checkout is blocked", () => assert.ok(!isSafeCommand("git checkout mai
 test("git stash (without list) is blocked", () => assert.ok(!isSafeCommand("git stash")));
 test("git stash push is blocked", () => assert.ok(!isSafeCommand("git stash push")));
 test("git init is blocked", () => assert.ok(!isSafeCommand("git init")));
+test("git branch delete is blocked", () => assert.ok(!isSafeCommand("git branch -d feature")));
+test("git remote add is blocked", () => assert.ok(!isSafeCommand("git remote add origin https://example.com/repo.git")));
+test("git tag creation is blocked", () => assert.ok(!isSafeCommand("git tag v1.0.0")));
+test("git show output file is blocked", () => assert.ok(!isSafeCommand("git show --output=out.txt HEAD")));
 
 test("sudo is blocked", () => assert.ok(!isSafeCommand("sudo rm -rf /")));
 test("vim is blocked", () => assert.ok(!isSafeCommand("vim file.txt")));
@@ -116,6 +120,15 @@ test("docker run is blocked", () => assert.ok(!isSafeCommand("docker run ubuntu"
 test("docker build is blocked", () => assert.ok(!isSafeCommand("docker build .")));
 
 test("brew install is blocked", () => assert.ok(!isSafeCommand("brew install node")));
+test("find delete is blocked", () => assert.ok(!isSafeCommand("find . -delete")));
+test("find exec is blocked", () => assert.ok(!isSafeCommand("find . -exec rm {} \\;")));
+test("curl output file is blocked", () => assert.ok(!isSafeCommand("curl -o out.html https://example.com")));
+test("curl POST is blocked", () => assert.ok(!isSafeCommand("curl -X POST https://example.com")));
+test("sort output file is blocked", () => assert.ok(!isSafeCommand("sort -o out.txt input.txt")));
+test("date set is blocked", () => assert.ok(!isSafeCommand("date -s tomorrow")));
+test("env command execution is blocked", () => assert.ok(!isSafeCommand("env rm -rf /")));
+test("hostname mutation is blocked", () => assert.ok(!isSafeCommand("hostname new-name")));
+test("npm audit fix is blocked", () => assert.ok(!isSafeCommand("npm audit fix")));
 
 // ── Compound commands ──
 

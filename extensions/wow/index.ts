@@ -9,6 +9,7 @@
  *   paths.ts     — Path shortening and OSC 8 hyperlink creation
  *   html.ts      — HTML → Markdown/Text conversion
  *   shell.ts     — Synchronous command execution wrappers
+ *   safe.ts      — Read-only bash command safety checks
  *
  * The entry itself is a no-op — it registers nothing and has no side effects.
  * Other extensions import utilities directly from the sub-modules:
@@ -52,6 +53,10 @@ export {
   execOrNull,
   execWithError,
 } from "./shell.ts";
+
+export {
+  isSafeCommand,
+} from "./safe.ts";
 
 // ── Extension entry (no-op) ──
 

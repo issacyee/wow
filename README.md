@@ -14,24 +14,27 @@ Or symlink to a local development directory. See [pi packages docs](https://gith
 
 ## Features
 
-### Plan Mode — `?` / `??` / `$`
+### Human-Led Coding Workflow — `?` / `??` / `?!` / `$`
 
-A multi-phase planning workflow that prompts the AI to explore, design, and then execute.
+A human-led coding workflow where the user decides when to discuss, plan, revise,
+and execute. Normal prompts keep pi's default behavior; the workflow only activates
+when a prefix is used.
 
 | Input | Behavior |
 |-------|----------|
-| `? <text>` | Start a new plan — read-only exploration, design, review
-| `?? <text>` | Continue/adjust the previous plan
-| `$` | Execute the current plan
-| `$ <text>` | Execute the plan with adjustments
+| `? <text>` | Discuss/analyze only — read-only exploration, no plan required |
+| `?? <text>` | Write a new reviewable plan, replacing any active plan |
+| `?! <text>` | Revise the current active plan from explicit review feedback |
+| `$` | Execute the current active plan |
+| `$ <text>` | Execute the current active plan with extra constraints |
 
-- **Multi-phase workflow**: new plans go through Understand → Design → Review & Write phases before producing the final plan
-- **Localized prompts**: plan prompts are generated in the user's OS language (zh/en supported) for natural reading experience
-- **Editor border colors**: orange (`#f5a742`) in `?` / `??` mode, blue (`#5c9cf5`) in `$` execution mode — visual feedback for the current mode
-- **Read-only safety**: planning mode blocks `edit` / `write` tools and dangerous bash commands via runtime `tool_call` gates, preventing accidental modifications without changing the active tool schema
-- **Progress tracking**: `[DONE:n]` markers in AI responses are recognized automatically; a completion summary is emitted when all steps are done
-- **Chinese IME friendly**: Full-width `？` `！` `￥` typed at the start of the editor
-  are automatically converted to `?` `!` `$` — no need to switch input methods
+- **Human-led control**: ordinary input remains free-form; plan feedback requires `?!`; execution requires `$`
+- **Read-only discussion/planning/revision**: these modes allow `read`, `grep`, `find`, `ls`, safe read-only `bash`, and `webfetch`, while blocking `edit`, `write`, and unsafe commands
+- **Reviewable plan structure**: plans include Goals, Background, Key Decisions, Non-goals, Implementation Steps, Acceptance Criteria, Verification, and Risks, ending with `Ready to execute?`
+- **Execution summary**: execution responses are guided to include Summary, Modified Files, and Follow-up Suggestions; commits remain manual
+- **Prefix-cache friendly**: the extension never mutates the system prompt, never switches active tools, filters stale workflow context messages from provider context, and stores state in custom entries outside LLM context
+- **Editor border colors**: purple for `?`, orange for `??`, yellow for `?!`, blue for `$`
+- **Chinese IME friendly**: full-width `？` `！` `￥` typed at the start of the editor are converted to `?` `!` `$`, including `？？` → `??` and `？！` → `?!`
 
 ### Locale — Stable Same-Language Policy
 
@@ -85,7 +88,7 @@ reasoning models:
 - Strips assistant `thinking` / `reasoning_content` from the provider context copy while preserving it in the local session/UI
 - Canonicalizes OpenAI-compatible provider tool schemas and sorts tools by name for deterministic payload bytes
 - Caps text tool results at 32KB in LLM context and saves oversized full output to a temp file
-- Keeps plan-mode from switching active tools; safety is enforced by `tool_call` gates instead
+- Keeps workflow modes from switching active tools; safety is enforced by `tool_call` gates instead
 - Provides `/cache-stats` for session cache usage and `/cache-doctor` for common stability problems
 
 **Development rule:** future extensions should avoid per-turn system prompt mutations,
@@ -119,7 +122,7 @@ Built on Node.js native `fetch` — HTML conversion powered by node-html-markdow
 - 32KB LLM-context output limit; full oversized output is saved to a temp file
 - Raster image detection with base64 encoding
 - URL parameters rendered as clickable hyperlinks in supported terminals
-- Allowed during plan-mode exploration; write safety is enforced by runtime gates, not active-tool switching
+- Allowed during human-led workflow exploration; write safety is enforced by runtime gates, not active-tool switching
 
 **Parameters:**
 
@@ -139,11 +142,12 @@ it serves purely as an import source for common functions.
 
 | Sub-module | Exports | Used by |
 |------------|---------|---------|
-| `locale.ts` | `detectLocale`, `detectPrimaryLocale`, `localeToDisplayName`, `buildLanguageInstruction`, `buildStableLanguagePolicy`, `LOCALE_MAP` | locale, plan-mode |
+| `locale.ts` | `detectLocale`, `detectPrimaryLocale`, `localeToDisplayName`, `buildLanguageInstruction`, `buildStableLanguagePolicy`, `LOCALE_MAP` | locale |
 | `renderer.ts` | `createFocusRenderCall`, `focusRenderCall`, `focusRenderResult` | focus-mode, webfetch |
 | `paths.ts` | `shortenPath`, `linkPath`, `shortenCommand` | focus-mode, footer |
 | `html.ts` | `convertHTMLToMarkdown`, `extractTextFromHTML`, `stripTags`, `isRasterImage`, `STRIP_TAGS` | webfetch |
 | `shell.ts` | `execOrNull`, `execWithError` | git-commit |
+| `safe.ts` | `isSafeCommand` | human-led-coding-workflow, plan-mode shim |
 
 Each sub-module can be imported directly by relative path:
 
@@ -153,6 +157,7 @@ import { createFocusRenderCall, focusRenderResult } from "../wow/renderer.ts";
 import { shortenPath, linkPath } from "../wow/paths.ts";
 import { convertHTMLToMarkdown } from "../wow/html.ts";
 import { execOrNull, execWithError } from "../wow/shell.ts";
+import { isSafeCommand } from "../wow/safe.ts";
 ```
 
 Or import everything from the unified entry:
@@ -190,13 +195,19 @@ wow/
 │   │   ├── renderer.ts      # Focus-style dim rendering (createFocusRenderCall, focusRenderResult)
 │   │   ├── paths.ts         # Path shortening & OSC 8 hyperlink (shortenPath, linkPath, shortenCommand)
 │   │   ├── html.ts          # HTML → Markdown/Text conversion (convertHTMLToMarkdown, extractTextFromHTML)
-│   │   └── shell.ts         # Sync command execution wrappers (execOrNull, execWithError)
+│   │   ├── shell.ts         # Sync command execution wrappers (execOrNull, execWithError)
+│   │   └── safe.ts          # Read-only bash command safety checks (isSafeCommand)
 │   ├── locale/              # Stable same-language policy
 │   │   └── index.ts         # Appends byte-stable language policy to system prompt
-│   ├── plan-mode/           # ?/??/$ plan mode extension
-│   │   ├── index.ts         # Entry: prefix detection, context injection, tool interception, custom editor
-│   │   ├── plan.ts          # Plan item extraction, [DONE:n] tracking, text cleanup, i18n locale detection
-│   │   └── safe.ts          # Bash destructive-pattern whitelist (planning mode safety)
+│   ├── human-led-coding-workflow/ # ?/??/?!/$ human-led workflow extension
+│   │   ├── index.ts         # Entry: prefix routing, context injection, tool gates, state persistence
+│   │   ├── prompts.ts       # Byte-stable workflow prompts
+│   │   ├── plan.ts          # Plan detection, extraction, [DONE:n] tracking
+│   │   └── editor.ts        # Prefix colors and Chinese IME conversion
+│   ├── plan-mode/           # Legacy plan-mode source, not loaded by package.json
+│   │   ├── index.ts         # Legacy entry
+│   │   ├── plan.ts          # Legacy plan helpers
+│   │   └── safe.ts          # Backward-compatible shim to wow/safe.ts
 │   ├── git-commit/          # /git-commit — LLM-generated Conventional Commits
 │   │   └── index.ts         # Standalone LLM call, parses output, executes commit via temp file
 │   ├── command-mappings/    # Generic declarative command alias registry

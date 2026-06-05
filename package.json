@@ -5,7 +5,7 @@
   "keywords": [
     "pi-package",
     "workflow",
-    "plan-mode"
+    "human-led-coding-workflow"
   ],
   "dependencies": {
     "node-html-markdown": "^2.0.0",
@@ -17,7 +17,7 @@
       "./extensions/wow/index.ts",
       "./extensions/locale/index.ts",
       "./extensions/editor-style/index.ts",
-      "./extensions/plan-mode/index.ts",
+      "./extensions/human-led-coding-workflow/index.ts",
       "./extensions/git-commit/index.ts",
       "./extensions/command-mappings/index.ts",
       "./extensions/focus-mode/index.ts",
