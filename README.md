@@ -1,16 +1,44 @@
 # Wow
 
+[English](README.md) | [简体中文](README.zh-CN.md)
+
 A pi package bundling essential features for daily AI coding workflows.
 
 ## Installation
 
-Clone the repository into your pi packages directory:
+Wow is a [pi](https://pi.dev) package. Pi is a terminal coding agent/harness
+that can be extended with TypeScript extensions, skills, prompt templates, and
+themes. Pi packages bundle those resources so they can be installed from npm,
+git, or local paths.
+
+Install pi first if you do not already have it:
 
 ```bash
-git clone <repo-url> ~/.pi/packages/wow
+npm install -g --ignore-scripts @earendil-works/pi-coding-agent
+# or
+curl -fsSL https://pi.dev/install.sh | sh
 ```
 
-Or symlink to a local development directory. See [pi packages docs](https://github.com/earendil-works/pi) for details.
+Then authenticate pi with `/login` or a provider API key. See the pi docs for
+model/provider setup.
+
+This repository is a GitHub template repository because Wow is a personal pi
+package. Many features are tailored to my own workflow, may change frequently
+based on day-to-day usage, and can include breaking changes without versioned
+releases.
+
+If you want to use this package as-is, install it from git:
+
+```bash
+pi install git:github.com/issacyee/wow
+```
+
+Pi packages run with full system access through their extensions, so review the
+source before installing any third-party package.
+
+If you want to build your own personal workflow package based on Wow, create a
+new repository from this template instead of forking it. That keeps your custom
+package independent from this repository's frequent personal changes.
 
 ## Features
 
