@@ -50,6 +50,7 @@ interface WorkflowState {
 
 let turnMode: TurnMode = null;
 let hasExecutionAdjustment = false;
+let planFromPreviousDiscussion = false;
 let activePlan = false;
 let planFullText = "";
 let todoItems: TodoItem[] = [];
@@ -58,6 +59,7 @@ let executed = false;
 function resetState(): void {
   turnMode = null;
   hasExecutionAdjustment = false;
+  planFromPreviousDiscussion = false;
   activePlan = false;
   planFullText = "";
   todoItems = [];
@@ -236,7 +238,42 @@ function isReadOnlyMode(mode: TurnMode): boolean {
 }
 
 function isWorkflowContextMessage(message: any): boolean {
-  return message?.role === "custom" && message.customType === WORKFLOW_CONTEXT_TYPE;
+  return (message?.role === "custom" || message?.type === "custom_message") && message.customType === WORKFLOW_CONTEXT_TYPE;
+}
+
+function contextText(message: any): string {
+  const content = message?.content;
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return "";
+
+  return content
+    .filter((block: any) => block?.type === "text" && typeof block.text === "string")
+    .map((block: any) => block.text)
+    .join("\n");
+}
+
+function hasRecentDiscussion(ctx: ExtensionContext): boolean {
+  const branch = ctx.sessionManager.getBranch() as any[];
+  let latestWorkflowContextIndex = -1;
+  let latestWorkflowContextText = "";
+
+  for (let i = branch.length - 1; i >= 0; i--) {
+    const entry = branch[i];
+    const message = entry?.type === "custom_message" ? entry : entry?.type === "message" ? entry.message : undefined;
+    if (!isWorkflowContextMessage(message)) continue;
+
+    latestWorkflowContextIndex = i;
+    latestWorkflowContextText = contextText(message);
+    break;
+  }
+
+  if (latestWorkflowContextIndex < 0 || !latestWorkflowContextText.includes("[HUMAN-LED CODING WORKFLOW: DISCUSS]")) {
+    return false;
+  }
+
+  return branch.slice(latestWorkflowContextIndex + 1).some((entry: any) =>
+    entry?.type === "message" && isAssistantMessage(entry.message)
+  );
 }
 
 export default function humanLedCodingWorkflowExtension(pi: ExtensionAPI): void {
@@ -252,9 +289,11 @@ export default function humanLedCodingWorkflowExtension(pi: ExtensionAPI): void 
     }
 
     if (parsed.mode !== "execute" && !parsed.prompt) {
-      turnMode = null;
-      updateStatus(ctx);
-      return missingArgument(ctx, parsed.mode === "revise" ? "?!" : parsed.mode === "plan" ? "??" : "?");
+      if (parsed.mode !== "plan" || !hasRecentDiscussion(ctx)) {
+        turnMode = null;
+        updateStatus(ctx);
+        return missingArgument(ctx, parsed.mode === "revise" ? "?!" : parsed.mode === "plan" ? "??" : "?");
+      }
     }
 
     if (parsed.mode === "plan") {
@@ -264,6 +303,8 @@ export default function humanLedCodingWorkflowExtension(pi: ExtensionAPI): void 
       executed = false;
       persistState(pi);
     }
+
+    planFromPreviousDiscussion = parsed.mode === "plan" && parsed.prompt.length === 0;
 
     if (parsed.mode === "revise" && !activePlan && (!canRecoverInactivePlan(ctx) || !recoverPlanFromSession(ctx))) {
       notify(ctx, "No active plan to revise. Use ?? to create a plan first.", "info");
@@ -303,7 +344,7 @@ export default function humanLedCodingWorkflowExtension(pi: ExtensionAPI): void 
       return {
         message: {
           customType: WORKFLOW_CONTEXT_TYPE,
-          content: buildPlanPrompt(),
+          content: buildPlanPrompt({ fromPreviousDiscussion: planFromPreviousDiscussion }),
           display: false,
         },
       };
@@ -433,6 +474,7 @@ export default function humanLedCodingWorkflowExtension(pi: ExtensionAPI): void 
 
     turnMode = null;
     hasExecutionAdjustment = false;
+    planFromPreviousDiscussion = false;
     updateStatus(ctx);
   });
 
@@ -456,5 +498,6 @@ export default function humanLedCodingWorkflowExtension(pi: ExtensionAPI): void 
   pi.on("session_shutdown", async () => {
     turnMode = null;
     hasExecutionAdjustment = false;
+    planFromPreviousDiscussion = false;
   });
 }

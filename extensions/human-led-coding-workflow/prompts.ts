@@ -19,6 +19,9 @@ export function buildDiscussPrompt(): string {
 Role: discuss and analyze with the human as the decision maker.
 
 Rules:
+- Treat the user's current message as the active discussion focus.
+- Use prior conversation as background only; do not assume the previous topic remains the focus.
+- Continue a previous topic only when the user explicitly refers to it. If the user introduces a new topic, switch focus to the new topic.
 - Explore the codebase when useful with: ${READ_ONLY_TOOLS}.
 - Do not edit files or write new files.
 - Do not produce an implementation plan unless the user explicitly asks for one with ?? .
@@ -26,12 +29,20 @@ Rules:
 - If implementation seems appropriate, explain the findings and invite the user to request a plan with ?? .`;
 }
 
-export function buildPlanPrompt(): string {
+interface PlanPromptOptions {
+  fromPreviousDiscussion?: boolean;
+}
+
+export function buildPlanPrompt(options: PlanPromptOptions = {}): string {
+  const sourceInstruction = options.fromPreviousDiscussion
+    ? "\n- The user sent ?? without extra text. Treat this as full approval of the most recent discussion result and write the plan from that discussion."
+    : "";
+
   return `[HUMAN-LED CODING WORKFLOW: WRITE NEW PLAN]
 
 Role: create a new reviewable plan for the human. This replaces any previous active plan.
 
-Rules:
+Rules:${sourceInstruction}
 - Explore the codebase first when needed with: ${READ_ONLY_TOOLS}.
 - If critical information is missing, ask concise questions and do not output a plan yet.
 - Do not edit files or write new files.

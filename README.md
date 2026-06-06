@@ -1,6 +1,6 @@
 # Wow
 
-A foundational pi package bundling essential features for daily AI coding workflows.
+A pi package bundling essential features for daily AI coding workflows.
 
 ## Installation
 
@@ -24,6 +24,7 @@ when a prefix is used.
 |-------|----------|
 | `? <text>` | Discuss/analyze only — read-only exploration, no plan required |
 | `?? <text>` | Write a new reviewable plan, replacing any active plan |
+| `??` | Write a plan from the most recent `?` discussion, if available |
 | `?! <text>` | Revise the current active plan from explicit review feedback |
 | `$` | Execute the current active plan |
 | `$ <text>` | Execute the current active plan with extra constraints |

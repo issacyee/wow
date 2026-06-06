@@ -1,6 +1,6 @@
 # Wow — Foundational AI Workflow pi Package
 
-A foundational pi package bundling essential features for daily AI coding workflows.
+A pi package bundling essential features for daily AI coding workflows.
 
 ## Structure
 
@@ -100,7 +100,7 @@ A human-led coding workflow triggered by `?`/`??`/`?!`/`$` input prefixes. Norma
 
 **Modes:**
 1. **Discuss (`?`)** — analyze and discuss, with read-only exploration; do not write a plan unless the user asks with `??`.
-2. **Plan (`??`)** — create a new reviewable plan, replacing any active plan.
+2. **Plan (`??`)** — create a new reviewable plan, replacing any active plan. Empty `??` means the human fully approves the most recent `?` discussion result and wants a plan from it, when such discussion exists.
 3. **Revise (`?!`)** — revise the active plan from explicit human review feedback.
 4. **Execute (`$`)** — execute the active human-approved plan.
 
@@ -162,6 +162,7 @@ Installed via `setFooter()` in `session_start`. Reacts to git branch changes via
 |-------|----------|
 | `? <text>` | Discuss/analyze only, read-only exploration |
 | `?? <text>` | Write a new reviewable plan |
+| `??` | Write a plan from the most recent `?` discussion, if available |
 | `?! <text>` | Revise the active plan from explicit feedback |
 | `$` | Execute the active plan |
 | `$ <text>` | Execute the active plan with additional constraints |
