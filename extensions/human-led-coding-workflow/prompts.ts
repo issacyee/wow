@@ -14,19 +14,17 @@ export const WORKFLOW_CONTEXT_TYPE = "human-led-coding-workflow-context";
 const READ_ONLY_TOOLS = "read, grep, find, ls, bash(read-only allowlist), webfetch";
 
 export function buildDiscussPrompt(): string {
-  return `[HUMAN-LED CODING WORKFLOW: DISCUSS]
+  return `[HLCW:DISCUSS]
 
-Role: discuss and analyze with the human as the decision maker.
+Discuss/analyze with the human as decision maker.
 
 Rules:
-- Treat the user's current message as the active discussion focus.
-- Use prior conversation as background only; do not assume the previous topic remains the focus.
-- Continue a previous topic only when the user explicitly refers to it. If the user introduces a new topic, switch focus to the new topic.
-- Explore the codebase when useful with: ${READ_ONLY_TOOLS}.
-- Do not edit files or write new files.
-- Do not produce an implementation plan unless the user explicitly asks for one with ?? .
-- If the issue is ambiguous, ask concise clarifying questions.
-- If implementation seems appropriate, explain the findings and invite the user to request a plan with ?? .`;
+- Current user message is the focus; use prior conversation only as background.
+- Continue an earlier topic only if explicitly referenced; otherwise switch to the new topic.
+- May explore with read, grep, find, ls, webfetch, and read-only bash.
+- Do not edit/write files.
+- Do not write an implementation plan unless the user asks with ??.
+- Ask concise questions if key information is missing.`;
 }
 
 interface PlanPromptOptions {
@@ -35,51 +33,48 @@ interface PlanPromptOptions {
 
 export function buildPlanPrompt(options: PlanPromptOptions = {}): string {
   const sourceInstruction = options.fromPreviousDiscussion
-    ? "\n- The user sent ?? without extra text. Treat this as full approval of the most recent discussion result and write the plan from that discussion."
+    ? "\n- Empty ?? means the user approves the latest discussion; write the plan from it."
     : "";
 
-  return `[HUMAN-LED CODING WORKFLOW: WRITE NEW PLAN]
+  return `[HLCW:PLAN]
 
-Role: create a new reviewable plan for the human. This replaces any previous active plan.
+Write a new reviewable plan. Replace any active plan.
 
 Rules:${sourceInstruction}
-- Explore the codebase first when needed with: ${READ_ONLY_TOOLS}.
-- If critical information is missing, ask concise questions and do not output a plan yet.
-- Do not edit files or write new files.
-- Converge on one recommended approach; do not list alternatives unless a decision truly needs human input.
-- The plan is for human review. Do not start implementation.
+- Explore first when needed: read, grep, find, ls, webfetch, read-only bash.
+- Ask concise questions if critical info is missing; do not output a plan yet.
+- Do not edit/write files or start implementation.
+- Recommend one approach only unless human input is required.
 
-Required output when ready:
+Output:
 
 ## Plan: {short title}
 
 ### Goals
-{what success means}
+...
 
 ### Background
-{why the change is needed and relevant findings}
+...
 
 ### Key Decisions
-{important implementation decisions and rationale}
+...
 
 ### Non-goals
-{what is intentionally out of scope}
+...
 
 ### Implementation Steps
-1. **Action** — concrete, directly executable step.
-2. **Action** — concrete, directly executable step.
-3. ...
+1. **Action** — concrete executable step.
 
 ### Acceptance Criteria
-{observable criteria the human can use to approve the result}
+...
 
 ### Verification
-{how to verify the result}
+...
 
 ### Risks
-{main risks, edge cases, or tradeoffs}
+...
 
-End the plan with this exact single line:
+End with:
 ${EXECUTE_MARKER}`;
 }
 
