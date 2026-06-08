@@ -267,7 +267,11 @@ function hasRecentDiscussion(ctx: ExtensionContext): boolean {
     break;
   }
 
-  if (latestWorkflowContextIndex < 0 || !latestWorkflowContextText.includes("[HUMAN-LED CODING WORKFLOW: DISCUSS]")) {
+  const isDiscussContext =
+    latestWorkflowContextText.includes("[HLCW:DISCUSS]") ||
+    latestWorkflowContextText.includes("[HUMAN-LED CODING WORKFLOW: DISCUSS]");
+
+  if (latestWorkflowContextIndex < 0 || !isDiscussContext) {
     return false;
   }
 
