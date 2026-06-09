@@ -50,7 +50,7 @@ export function installFooter(pi: ExtensionAPI, ctx: ExtensionContext): void {
 
     return {
       dispose: unsubBranch,
-      invalidate() {},
+      invalidate() { },
       render(width: number): string[] {
         const cwdPath = ctx.cwd ?? process.cwd();
         const cwdName = shortenPath(cwdPath);
@@ -62,7 +62,7 @@ export function installFooter(pi: ExtensionAPI, ctx: ExtensionContext): void {
         const modelName = ctx.model?.id || "no-model";
         const thinkingLevel = pi.getThinkingLevel();
         const modelDisplay = thinkingLevel && thinkingLevel !== "off"
-          ? GREEN(`${modelName} ${thinkingLevel}`)
+          ? GREEN(`${modelName} • ${thinkingLevel}`)
           : GREEN(modelName);
 
         const line1Left = cwdDisplay + branchDisplay;

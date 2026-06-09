@@ -9,7 +9,7 @@ import { CustomEditor } from "@earendil-works/pi-coding-agent";
 import { visibleWidth } from "@earendil-works/pi-tui";
 import { EXECUTE_BLUE, ORANGE, PURPLE, YELLOW, type ColorFn } from "./palette.ts";
 
-const PI_LABEL = "𝝅";
+const PI_LABEL = "π";
 
 function stripInvisible(str: string): string {
   return str
