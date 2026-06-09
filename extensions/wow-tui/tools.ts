@@ -1,16 +1,10 @@
 /**
- * Focus Mode — minimal, unobtrusive tool rendering
+ * Wow TUI focus-style built-in tool rendering.
  *
- * Overrides all 7 built-in tools to replace the default green-background Box
- * with a single dim-text line per tool call. Tool results (output) are hidden.
- * Multiple consecutive tool calls appear flush together with no spacing.
- *
- * The rendering style uses `theme.fg("dim", ...)` — the same muted color as
- * collapsed thinking blocks — so tool calls remain visible for context but
- * don't compete for visual attention.
- *
- * Usage: load via package.json, then use Ctrl+O to toggle collapse/expand.
- *   Ctrl+T hides thinking blocks, Ctrl+O collapses tool rows.
+ * Re-registers built-in tools with the same execution behavior but a minimal
+ * visual shell: one dim line for the call and no result preview. Also installs
+ * the same render adapter for webfetch before the webfetch extension registers
+ * its logic tool.
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -23,10 +17,10 @@ import {
   createFindTool,
   createLsTool,
 } from "@earendil-works/pi-coding-agent";
-import { Text, Container } from "@earendil-works/pi-tui";
-import { shortenPath, linkPath, shortenCommand } from "../wow/paths.ts";
-
-// ── Tool cache (keyed by cwd) ──
+import { Container, Text } from "@earendil-works/pi-tui";
+import { setWebfetchRenderOptions } from "../webfetch/index.ts";
+import { linkPath, shortenCommand } from "../wow/paths.ts";
+import { createFocusRenderCall, focusRenderResult } from "../wow/renderer.ts";
 
 interface ToolSet {
   read: ReturnType<typeof createReadTool>;
@@ -61,15 +55,10 @@ function getTools(cwd: string): ToolSet {
   return tools;
 }
 
-// Get a representative tool set for parameter/description extraction
 const defaultTools = createToolSet(process.cwd());
+const emptyResult = () => new Container();
 
-// ── Extension entry ──
-
-export default function (pi: ExtensionAPI): void {
-  // =========================================================================
-  // Read — "read src/index.ts"
-  // =========================================================================
+export function registerFocusToolRendering(pi: ExtensionAPI): void {
   pi.registerTool({
     name: "read",
     label: "read",
@@ -77,8 +66,7 @@ export default function (pi: ExtensionAPI): void {
     parameters: defaultTools.read.parameters,
     renderShell: "self",
     async execute(toolCallId, params, signal, onUpdate, ctx) {
-      const tools = getTools(ctx.cwd);
-      return tools.read.execute(toolCallId, params, signal, onUpdate);
+      return getTools(ctx.cwd).read.execute(toolCallId, params, signal, onUpdate);
     },
     renderCall(args, theme, context) {
       const cwd = context?.cwd ?? process.cwd();
@@ -91,14 +79,9 @@ export default function (pi: ExtensionAPI): void {
       }
       return new Text(theme.fg("dim", text), 1, 0);
     },
-    renderResult(_result, _options, _theme, _context) {
-      return new Container();
-    },
+    renderResult: emptyResult,
   });
 
-  // =========================================================================
-  // Bash — "$ npm test"
-  // =========================================================================
   pi.registerTool({
     name: "bash",
     label: "bash",
@@ -106,21 +89,15 @@ export default function (pi: ExtensionAPI): void {
     parameters: defaultTools.bash.parameters,
     renderShell: "self",
     async execute(toolCallId, params, signal, onUpdate, ctx) {
-      const tools = getTools(ctx.cwd);
-      return tools.bash.execute(toolCallId, params, signal, onUpdate);
+      return getTools(ctx.cwd).bash.execute(toolCallId, params, signal, onUpdate);
     },
-    renderCall(args, theme, _context) {
+    renderCall(args, theme) {
       const cmd = shortenCommand(args.command || "");
       return new Text(theme.fg("dim", `$ ${cmd}`), 1, 0);
     },
-    renderResult(_result, _options, _theme, _context) {
-      return new Container();
-    },
+    renderResult: emptyResult,
   });
 
-  // =========================================================================
-  // Edit — "edit src/index.ts"
-  // =========================================================================
   pi.registerTool({
     name: "edit",
     label: "edit",
@@ -128,25 +105,18 @@ export default function (pi: ExtensionAPI): void {
     parameters: defaultTools.edit.parameters,
     renderShell: "self",
     async execute(toolCallId, params, signal, onUpdate, ctx) {
-      const tools = getTools(ctx.cwd);
-      return tools.edit.execute(toolCallId, params, signal, onUpdate);
+      return getTools(ctx.cwd).edit.execute(toolCallId, params, signal, onUpdate);
     },
     renderCall(args, theme, context) {
       const cwd = context?.cwd ?? process.cwd();
       const path = linkPath(args.path || "", cwd);
-      const editCount =
-        args.edits && Array.isArray(args.edits) ? args.edits.length : 1;
+      const editCount = args.edits && Array.isArray(args.edits) ? args.edits.length : 1;
       const countInfo = editCount > 1 ? ` (${editCount} edits)` : "";
       return new Text(theme.fg("dim", `edit ${path}${countInfo}`), 1, 0);
     },
-    renderResult(_result, _options, _theme, _context) {
-      return new Container();
-    },
+    renderResult: emptyResult,
   });
 
-  // =========================================================================
-  // Write — "write dist/config.js"
-  // =========================================================================
   pi.registerTool({
     name: "write",
     label: "write",
@@ -154,22 +124,16 @@ export default function (pi: ExtensionAPI): void {
     parameters: defaultTools.write.parameters,
     renderShell: "self",
     async execute(toolCallId, params, signal, onUpdate, ctx) {
-      const tools = getTools(ctx.cwd);
-      return tools.write.execute(toolCallId, params, signal, onUpdate);
+      return getTools(ctx.cwd).write.execute(toolCallId, params, signal, onUpdate);
     },
     renderCall(args, theme, context) {
       const cwd = context?.cwd ?? process.cwd();
       const path = linkPath(args.path || "", cwd);
       return new Text(theme.fg("dim", `write ${path}`), 1, 0);
     },
-    renderResult(_result, _options, _theme, _context) {
-      return new Container();
-    },
+    renderResult: emptyResult,
   });
 
-  // =========================================================================
-  // Grep — "grep /pattern/"
-  // =========================================================================
   pi.registerTool({
     name: "grep",
     label: "grep",
@@ -177,28 +141,21 @@ export default function (pi: ExtensionAPI): void {
     parameters: defaultTools.grep.parameters,
     renderShell: "self",
     async execute(toolCallId, params, signal, onUpdate, ctx) {
-      const tools = getTools(ctx.cwd);
-      return tools.grep.execute(toolCallId, params, signal, onUpdate);
+      return getTools(ctx.cwd).grep.execute(toolCallId, params, signal, onUpdate);
     },
     renderCall(args, theme, context) {
       const cwd = context?.cwd ?? process.cwd();
       const pattern = args.pattern || "";
-      const displayPattern =
-        pattern.length > 40 ? pattern.slice(0, 37) + "..." : pattern;
+      const displayPattern = pattern.length > 40 ? pattern.slice(0, 37) + "..." : pattern;
       let text = `grep /${displayPattern}/`;
       if (args.path) {
         text += ` in ${linkPath(args.path, cwd)}`;
       }
       return new Text(theme.fg("dim", text), 1, 0);
     },
-    renderResult(_result, _options, _theme, _context) {
-      return new Container();
-    },
+    renderResult: emptyResult,
   });
 
-  // =========================================================================
-  // Find — "find **/*.ts"
-  // =========================================================================
   pi.registerTool({
     name: "find",
     label: "find",
@@ -206,28 +163,21 @@ export default function (pi: ExtensionAPI): void {
     parameters: defaultTools.find.parameters,
     renderShell: "self",
     async execute(toolCallId, params, signal, onUpdate, ctx) {
-      const tools = getTools(ctx.cwd);
-      return tools.find.execute(toolCallId, params, signal, onUpdate);
+      return getTools(ctx.cwd).find.execute(toolCallId, params, signal, onUpdate);
     },
     renderCall(args, theme, context) {
       const cwd = context?.cwd ?? process.cwd();
       const pattern = args.pattern || "";
-      const displayPattern =
-        pattern.length > 45 ? pattern.slice(0, 42) + "..." : pattern;
+      const displayPattern = pattern.length > 45 ? pattern.slice(0, 42) + "..." : pattern;
       let text = `find ${displayPattern}`;
       if (args.path && args.path !== ".") {
         text += ` in ${linkPath(args.path, cwd)}`;
       }
       return new Text(theme.fg("dim", text), 1, 0);
     },
-    renderResult(_result, _options, _theme, _context) {
-      return new Container();
-    },
+    renderResult: emptyResult,
   });
 
-  // =========================================================================
-  // Ls — "ls src/"
-  // =========================================================================
   pi.registerTool({
     name: "ls",
     label: "ls",
@@ -235,16 +185,19 @@ export default function (pi: ExtensionAPI): void {
     parameters: defaultTools.ls.parameters,
     renderShell: "self",
     async execute(toolCallId, params, signal, onUpdate, ctx) {
-      const tools = getTools(ctx.cwd);
-      return tools.ls.execute(toolCallId, params, signal, onUpdate);
+      return getTools(ctx.cwd).ls.execute(toolCallId, params, signal, onUpdate);
     },
     renderCall(args, theme, context) {
       const cwd = context?.cwd ?? process.cwd();
       const path = args.path && args.path !== "." ? linkPath(args.path, cwd) : ".";
       return new Text(theme.fg("dim", `ls ${path}`), 1, 0);
     },
-    renderResult(_result, _options, _theme, _context) {
-      return new Container();
-    },
+    renderResult: emptyResult,
+  });
+
+  setWebfetchRenderOptions({
+    renderShell: "self",
+    renderCall: createFocusRenderCall("webfetch"),
+    renderResult: focusRenderResult,
   });
 }

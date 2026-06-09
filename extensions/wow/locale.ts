@@ -1,8 +1,8 @@
 /**
  * Locale utilities — detect OS language and build language instructions
  *
- * Unified locale detection and language mapping, consolidating logic
- * previously duplicated in locale/ and plan-mode/ extensions.
+ * Unified locale detection and language mapping shared by locale-aware
+ * extensions and local UI/template helpers.
  */
 
 // ── Locale detection ──

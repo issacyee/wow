@@ -1,0 +1,104 @@
+/**
+ * Wow TUI composite editor.
+ *
+ * Combines package-level editor visuals in one editor implementation so visual
+ * features do not compete for the singleton editor component.
+ */
+
+import { CustomEditor } from "@earendil-works/pi-coding-agent";
+import { visibleWidth } from "@earendil-works/pi-tui";
+import { EXECUTE_BLUE, ORANGE, PURPLE, YELLOW, type ColorFn } from "./palette.ts";
+
+const PI_LABEL = "𝝅";
+
+function stripInvisible(str: string): string {
+  return str
+    .replace(/\x1b\[[0-9;]*[a-zA-Z]/g, "")
+    .replace(/\x1b_P[^\x1b]*\x1b\\/g, "");
+}
+
+function workflowBorderColor(text: string): ColorFn | null {
+  if (text.startsWith("?!") || text.startsWith("?！") || text.startsWith("？！") || text.startsWith("？!")) {
+    return YELLOW;
+  }
+  if (text.startsWith("??") || text.startsWith("?？") || text.startsWith("？？") || text.startsWith("？?")) {
+    return ORANGE;
+  }
+  if (text.startsWith("?") || text.startsWith("？")) {
+    return PURPLE;
+  }
+  if (text.startsWith("$") || text.startsWith("￥")) {
+    return EXECUTE_BLUE;
+  }
+  return null;
+}
+
+export class WowCompositeEditor extends CustomEditor {
+  private _storedBorderColor!: ColorFn;
+  private _modeBorderColor: ColorFn | null = null;
+
+  constructor(tui: any, theme: any, keybindings: any) {
+    super(tui, theme, keybindings);
+    this._storedBorderColor = theme.borderColor;
+
+    Object.defineProperty(this, "borderColor", {
+      get: () => this._modeBorderColor ?? this._storedBorderColor,
+      set: (fn) => { this._storedBorderColor = fn; },
+      configurable: true,
+      enumerable: true,
+    });
+  }
+
+  handleInput(data: string): void {
+    if (data.length === 1 && (data === "\uFF1F" || data === "\uFF01" || data === "\uFFE5")) {
+      const text = this.getText();
+      const cursor = this.getCursor();
+
+      if (cursor.line === 0 && cursor.col === 0) {
+        const map: Record<string, string> = {
+          "\uFF1F": "?",
+          "\uFF01": "!",
+          "\uFFE5": "$",
+        };
+        super.handleInput(map[data]);
+        return;
+      }
+
+      if (text === "?" && cursor.line === 0 && cursor.col === 1) {
+        if (data === "\uFF1F") {
+          super.handleInput("?");
+          return;
+        }
+        if (data === "\uFF01") {
+          super.handleInput("!");
+          return;
+        }
+      }
+    }
+
+    super.handleInput(data);
+  }
+
+  render(width: number): string[] {
+    const text = this.getText();
+    this._modeBorderColor = workflowBorderColor(text);
+
+    const lines = super.render(width);
+    if (lines.length === 0) return lines;
+
+    const first = lines[0]!;
+    const plain = stripInvisible(first);
+
+    if (/^─+$/.test(plain)) {
+      const prefix = `─ ${PI_LABEL} `;
+      const dashes = Math.max(0, width - visibleWidth(prefix));
+      lines[0] = this.borderColor(`${prefix}${"─".repeat(dashes)}`);
+    }
+
+    return lines;
+  }
+}
+
+export function createEditorComponent(tui: any, theme: any, keybindings: any): WowCompositeEditor {
+  return new WowCompositeEditor(tui, theme, keybindings);
+}

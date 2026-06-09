@@ -16,7 +16,6 @@ import { join } from "node:path";
 
 import { defineTool, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { StringEnum, Type } from "@earendil-works/pi-ai";
-import { createFocusRenderCall, focusRenderResult } from "../wow/renderer.ts";
 import {
   extractTextFromHTML,
   convertHTMLToMarkdown,
@@ -51,7 +50,18 @@ async function truncateForContext(output: string): Promise<{ text: string; trunc
 
 // ── Tool definition ──
 
-const webfetchTool = defineTool({
+const WEBFETCH_RENDER_OPTIONS_KEY = Symbol.for("wow.webfetch.renderOptions");
+
+function getWebfetchRenderOptions(): Record<string, any> {
+  return (globalThis as any)[WEBFETCH_RENDER_OPTIONS_KEY] ?? {};
+}
+
+export function setWebfetchRenderOptions(renderOptions: Record<string, any>): void {
+  (globalThis as any)[WEBFETCH_RENDER_OPTIONS_KEY] = renderOptions;
+}
+
+export function createWebfetchTool(renderOptions: Record<string, any> = getWebfetchRenderOptions()) {
+  return defineTool({
   name: "webfetch",
   label: "WebFetch",
   description: [
@@ -245,13 +255,12 @@ const webfetchTool = defineTool({
     };
   },
 
-  renderShell: "self",
-  renderCall: createFocusRenderCall("webfetch"),
-  renderResult: focusRenderResult,
-});
+  ...renderOptions,
+  });
+}
 
 // ── Extension entry ──
 
 export default function (pi: ExtensionAPI): void {
-  pi.registerTool(webfetchTool);
+  pi.registerTool(createWebfetchTool());
 }

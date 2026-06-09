@@ -16,14 +16,12 @@
     "extensions": [
       "./extensions/wow/index.ts",
       "./extensions/locale/index.ts",
-      "./extensions/editor-style/index.ts",
       "./extensions/human-led-coding-workflow/index.ts",
       "./extensions/git-commit/index.ts",
       "./extensions/command-mappings/index.ts",
-      "./extensions/focus-mode/index.ts",
+      "./extensions/wow-tui/index.ts",
       "./extensions/webfetch/index.ts",
-      "./extensions/prefix-cache/index.ts",
-      "./extensions/footer/index.ts"
+      "./extensions/prefix-cache/index.ts"
     ],
     "skills": [
       "./skills"
@@ -31,5 +29,11 @@
     "prompts": [
       "./prompts"
     ]
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-agent-core": "*",
+    "@earendil-works/pi-ai": "*",
+    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-tui": "*"
   }
 }

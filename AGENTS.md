@@ -14,38 +14,37 @@ wow/
 │   ├── wow/                 # Base extension — shared utilities for all other extensions
 │   │   ├── index.ts         # Extension entry (no-op), unified re-export of all sub-modules
 │   │   ├── locale.ts        # Locale detection and stable language policy utilities
-│   │   ├── renderer.ts      # Focus-style dim rendering (createFocusRenderCall, focusRenderResult)
-│   │   ├── paths.ts         # Path shortening & OSC 8 hyperlink (shortenPath, linkPath, shortenCommand)
-│   │   ├── html.ts          # HTML → Markdown/Text conversion (convertHTMLToMarkdown, extractTextFromHTML)
-│   │   ├── shell.ts         # Sync command execution wrappers (execOrNull, execWithError)
-│   │   └── safe.ts          # Read-only bash safety check (isSafeCommand)
+│   │   ├── renderer.ts      # Focus-style dim rendering helpers for custom tools
+│   │   ├── paths.ts         # Path shortening & OSC 8 hyperlink helpers
+│   │   ├── html.ts          # HTML → Markdown/Text conversion helpers
+│   │   ├── shell.ts         # Sync command execution wrappers
+│   │   └── safe.ts          # Read-only bash safety check
 │   ├── locale/              # Stable same-language policy via before_agent_start
 │   │   └── index.ts         # Appends byte-stable language policy to the system prompt
-│   ├── human-led-coding-workflow/ # ?/??/?!/$ human-led coding workflow
+│   ├── human-led-coding-workflow/ # ?/??/?!/$ human-led coding workflow logic
 │   │   ├── index.ts         # Prefix routing, context injection, tool gates, state persistence
 │   │   ├── prompts.ts       # Byte-stable discuss/plan/revise/execute prompts
 │   │   ├── plan.ts          # Plan detection, extraction, [DONE:n] tracking
-│   │   └── editor.ts        # Prefix colors and Chinese IME conversion
-│   ├── plan-mode/           # Legacy plan-mode source, not loaded by package.json
-│   │   ├── index.ts         # Legacy entry
-│   │   ├── plan.ts          # Legacy plan helpers
-│   │   └── safe.ts          # Backward-compatible shim to wow/safe.ts
+│   │   └── state.ts         # UI-independent workflow state store
 │   ├── git-commit/          # /git-commit — LLM-generated Conventional Commits
 │   │   └── index.ts         # Standalone LLM call, parses output, executes commit via temp file
 │   ├── command-mappings/    # Generic declarative command alias registry
 │   │   └── index.ts         # Define command aliases (/exit, etc.) declaratively
-│   ├── focus-mode/          # Minimal, unobtrusive tool rendering
-│   │   ├── index.ts         # Overrides 7 built-in tools with dim single-line rendering
-│   │   └── renderer.ts      # Re-export from wow/renderer.ts (backward compatibility shim)
+│   ├── wow-tui/             # Unified visual shell / TUI compositor
+│   │   ├── index.ts         # Owns singleton TUI resources and installs presenters
+│   │   ├── config.ts        # Static visual feature toggles
+│   │   ├── palette.ts       # Shared color palette
+│   │   ├── footer.ts        # Two-line footer compositor
+│   │   ├── editor.ts        # Composite editor: pi label, workflow border, IME conversion
+│   │   ├── tools.ts         # Focus-style built-in tool rendering overrides
+│   │   └── widgets.ts       # Workflow status/todo presenters
 │   ├── webfetch/            # Fetch web content and convert to markdown/text/html
-│   │   └── index.ts         # webfetch tool using native fetch + node-html-markdown HTML conversion
-│   ├── prefix-cache/        # Reasonix-style prefix-cache optimizations and diagnostics
-│   │   ├── index.ts         # Reasoning stripping, schema canonicalization, cache commands
-│   │   ├── reasoning.ts     # Provider/model allowlist and thinking block removal
-│   │   ├── schema.ts        # Deterministic JSON/schema canonicalization
-│   │   └── stats.ts         # Cache/diagnostic stats helpers
-│   └── footer/              # Custom two-line footer with CWD hyperlink & context/cache bar
-│       └── index.ts         # setFooter replacement with custom color palette
+│   │   └── index.ts         # webfetch tool using native fetch + node-html-markdown conversion
+│   └── prefix-cache/        # Reasonix-style prefix-cache optimizations and diagnostics
+│       ├── index.ts         # Reasoning stripping, schema canonicalization, cache commands
+│       ├── reasoning.ts     # Provider/model allowlist and thinking block removal
+│       ├── schema.ts        # Deterministic JSON/schema canonicalization
+│       └── stats.ts         # Cache/diagnostic stats helpers
 ├── prompts/                 # Prompt templates (reserved, currently empty)
 └── skills/                  # Skills (reserved, currently empty)
 ```
@@ -63,18 +62,19 @@ and other technical content use English.
 
 ### Technical Conventions
 
-- Use TypeScript, following existing code style
+- Use TypeScript, following existing code style.
 - Extension runtime dependencies (peerDependencies):
   - `@earendil-works/pi-coding-agent` — extension API, tool factories, custom editor
   - `@earendil-works/pi-agent-core` — agent message types
   - `@earendil-works/pi-ai` — LLM completion API (`complete`, message types)
-  - `@earendil-works/pi-tui` — TUI components (`Text`, `Container`), used by focus-mode
-- Run `/reload` or restart pi after editing extensions
-- **Shared utilities** live in `extensions/wow/` — import from there, don't duplicate
-- **Prefix-cache safety**: preserve byte-stable prompt prefixes. Do not add per-turn timestamps, random IDs, counters, or OS-locale strings to the system prompt. Do not switch active tools for modes; enforce permissions with `tool_call` gates. Truncate custom tool outputs before returning them to the LLM.
-- Keep the read-only bash allowlist in `extensions/wow/safe.ts` comprehensive — omissions may cause data loss in read-only workflow modes
-- The custom editor (`HumanLedWorkflowEditor`) is installed via `session_start` event and overrides `handleInput()` to convert full-width `？`/`！`/`￥` to half-width `?`/`!`/`$` at cursor position 0, so Chinese IME users don't need to toggle input method for workflow commands
-- The editor border color is intercepted via `Object.defineProperty` on `borderColor` to overlay mode-specific colors (purple/orange/yellow/blue) while preserving the framework's native border color for thinking/bash mode
+  - `@earendil-works/pi-tui` — TUI components (`Text`, `Container`), used by `wow-tui` and tool renderers
+- Run `/reload` or restart pi after editing extensions.
+- **Shared utilities** live in `extensions/wow/` — import from there, don't duplicate.
+- **Visual shell boundary**: `extensions/wow-tui/` is the only package extension that should own singleton TUI resources such as `ctx.ui.setFooter()`, `ctx.ui.setEditorComponent()`, and package-wide tool rendering overrides. Logic extensions should expose state and behavior, not visual composition.
+- **Prefix-cache safety**: preserve byte-stable prompt prefixes. Do not add per-turn timestamps, random IDs, counters, or OS-locale strings to the system prompt. Do not switch active tools for workflow modes; enforce permissions with `tool_call` gates. Truncate custom tool outputs before returning them to the LLM.
+- Keep the read-only bash allowlist in `extensions/wow/safe.ts` comprehensive — omissions may cause data loss in read-only workflow modes.
+- The unified editor in `wow-tui` converts full-width `？`/`！`/`￥` to half-width `?`/`!`/`$` at workflow-prefix positions so Chinese IME users don't need to toggle input method.
+- The editor border color is intercepted via `Object.defineProperty` on `borderColor` to overlay workflow prefix colors (purple/orange/yellow/blue) while preserving the framework's native border color for thinking/bash mode.
 
 ## Extension Details
 
@@ -84,11 +84,11 @@ A pure utility layer with no runtime side effects. It registers nothing and serv
 
 Sub-modules:
 - **locale.ts** — `detectLocale()`, `detectPrimaryLocale()`, `localeToDisplayName()`, `buildLanguageInstruction()`, `buildStableLanguagePolicy()`, `LOCALE_MAP`. Shared locale and stable language policy helpers.
-- **renderer.ts** — `createFocusRenderCall()`, `focusRenderCall()`, `focusRenderResult()`. Dim-style TUI rendering for custom tools. Formerly `focus-mode/renderer.ts`.
-- **paths.ts** — `shortenPath()`, `linkPath()`, `shortenCommand()`. Path display utilities with OSC 8 hyperlink support. Extracted from `focus-mode/index.ts`.
-- **html.ts** — `convertHTMLToMarkdown()`, `extractTextFromHTML()`, `stripTags()`, `isRasterImage()`, `STRIP_TAGS`. AST-based HTML conversion via node-html-markdown. Extracted from `webfetch/index.ts`.
-- **shell.ts** — `execOrNull()`, `execWithError()`. Synchronous command execution wrappers with error handling. Extracted from `git-commit/index.ts`.
-- **safe.ts** — `isSafeCommand()`. Shared read-only bash allowlist used by workflow gates and legacy plan-mode shims.
+- **renderer.ts** — `createFocusRenderCall()`, `focusRenderCall()`, `focusRenderResult()`. Dim-style rendering helpers for custom tools.
+- **paths.ts** — `shortenPath()`, `linkPath()`, `shortenCommand()`. Path display utilities with OSC 8 hyperlink support.
+- **html.ts** — `convertHTMLToMarkdown()`, `extractTextFromHTML()`, `stripTags()`, `isRasterImage()`, `STRIP_TAGS`. AST-based HTML conversion via node-html-markdown.
+- **shell.ts** — `execOrNull()`, `execWithError()`. Synchronous command execution wrappers with error handling.
+- **safe.ts** — `isSafeCommand()`. Shared read-only bash allowlist used by workflow gates.
 
 ### locale
 
@@ -106,16 +106,26 @@ A human-led coding workflow triggered by `?`/`??`/`?!`/`$` input prefixes. Norma
 
 **Key mechanics:**
 - `EXECUTE_MARKER` (`"Ready to execute?"`) is the bridge between planning/revision and execution. Plans are captured from reverse-scanned assistant messages at `agent_end`.
-- Plans use Goals / Background / Key Decisions / Non-goals / Implementation Steps / Acceptance Criteria / Verification / Risks. There is no separate Files to Modify section in plans.
-- `[DONE:n]` markers in AI responses are tracked via `markCompletedSteps()` to show execution progress.
+- Plans use Goals / Background / Key Decisions / Non-goals / Implementation Steps / Acceptance Criteria / Verification / Risks.
+- `[DONE:n]` markers in AI responses are tracked via `markCompletedSteps()` to update execution progress state.
 - Discuss/plan/revise modes allow `read`, `grep`, `find`, `ls`, `webfetch`, and safe read-only `bash`; they block `edit`, `write`, unsafe bash, and unrelated tools.
 - Prefix-cache safety is a hard requirement: the extension never mutates the system prompt, never switches active tools, registers no dynamic tools, filters stale workflow context messages from provider context, and persists state via custom entries outside LLM context.
-- Editor border colors: purple for `?`, orange for `??`, yellow for `?!`, blue for `$`.
-- State is module-level (`turnMode`, `activePlan`, `todoItems`, `planFullText`) and restored from `human-led-coding-workflow` custom entries on `session_start`.
+- State is managed by `state.ts` and restored from `human-led-coding-workflow` custom entries on `session_start`.
+- TUI presentation for editor colors, status, and todo widgets is handled by `wow-tui`.
 
-### plan-mode
+### wow-tui
 
-Legacy source kept for compatibility/reference only. It is no longer loaded by `package.json`; `plan-mode/safe.ts` re-exports `isSafeCommand()` from `wow/safe.ts`.
+Unified visual shell and TUI compositor for this package. It centralizes pure visual features so logic extensions can be used without visual code.
+
+Responsibilities:
+- Installs the two-line footer via `ctx.ui.setFooter()`.
+- Installs the composite editor via `ctx.ui.setEditorComponent()`.
+- Applies the editor `𝝅` top-border label.
+- Applies workflow prefix border colors and Chinese IME prefix conversion.
+- Presents workflow status and todo widgets by subscribing to workflow state.
+- Re-registers built-in tools with focus-style minimal rendering.
+
+Removing `./extensions/wow-tui/index.ts` from `package.json` disables these package visuals while leaving logic extensions functional.
 
 ### git-commit
 
@@ -124,12 +134,6 @@ Standalone LLM call (isolated from main session context) using the caveman-commi
 ### command-mappings
 
 Declarative array (`COMMAND_MAPPINGS`) of `{ name, description, handler }` objects. Currently provides `/exit` as alias for `/quit`. Add new mappings by appending entries.
-
-### focus-mode
-
-Overrides all 7 built-in tools (read, bash, edit, write, grep, find, ls) using `createXxxTool()` factory functions from the SDK. Each overridden tool uses `renderShell: "self"` with custom `renderCall` (single dim-text line) and empty `renderResult`. Tool sets are cached per cwd via `toolCache` map.
-
-File paths are rendered as OSC 8 `file://` hyperlinks (clickable in supported terminals) via `linkPath()` from `wow/paths.ts`. Rendering utilities are imported from `wow/renderer.ts` (the `focus-mode/renderer.ts` file is a backward-compatibility re-export shim).
 
 ### webfetch
 
@@ -146,16 +150,6 @@ Reasonix-inspired prefix-cache optimization layer. It preserves local session/UI
 
 Future extensions must treat prefix stability as a compatibility contract: dynamic instructions belong in user/custom turn-tail messages or runtime gates, not in changing system prompts or changing tool sets.
 
-### footer
-
-Replaces the built-in footer with a custom two-line layout using a dedicated color palette (green `#1faf7a`, yellow `#c9a84c`, red `#e8634f`, blue `#17dae7`, purple `#7a5ea0`):
-
-**Line 1** (left to right): CWD path as clickable OSC 8 `file://` hyperlink via `hyperlink()` from `pi-tui` and `shortenPath()` from `wow/paths.ts` (yellow) + git branch (purple) ... LLM model name + thinking level (green, right-aligned). Left side is truncated when space is insufficient to guarantee the model name stays visible.
-
-**Line 2** (left to right): context usage progress bar (`█░`, 10 chars, color by threshold: green <50%, yellow 50-80%, red >80%) + percentage (same color) + token input/output stats (blue) + prefix-cache hit rate (green) + cost (yellow) ... extension statuses (dim, right-aligned).
-
-Installed via `setFooter()` in `session_start`. Reacts to git branch changes via `footerData.onBranchChange()`. Context usage from `ctx.getContextUsage()`, thinking level from `pi.getThinkingLevel()`, token stats computed from `ctx.sessionManager.getBranch()`.
-
 ## Human-Led Workflow Reference
 
 | Input | Behavior |
@@ -168,4 +162,4 @@ Installed via `setFooter()` in `session_start`. Reacts to git branch changes via
 | `$ <text>` | Execute the active plan with additional constraints |
 
 > **Chinese IME**: Full-width `？` `！` `￥` are automatically converted to `?` `!` `$`
-> when typed at the start of the editor — no need to switch input methods.
+> when typed at workflow-prefix positions — no need to switch input methods.

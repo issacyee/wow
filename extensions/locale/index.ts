@@ -3,8 +3,8 @@
  *
  * Prefix-cache rule: do not inject OS-specific language messages into every
  * turn. A generic same-language policy is appended to the system prompt with
- * identical bytes each turn, while plan-mode may still use OS locale locally to
- * choose human-readable plan templates.
+ * identical bytes each turn, while local UI/template code may still use OS
+ * locale outside LLM context.
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";

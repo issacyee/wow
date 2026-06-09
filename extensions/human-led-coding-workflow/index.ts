@@ -9,13 +9,16 @@
  * - Never switch active tools for modes.
  * - Enforce read-only restrictions with tool_call gates.
  * - Persist extension state with custom entries, not context messages.
+ *
+ * UI rule:
+ * - This logic extension owns workflow behavior/state only. TUI presentation is
+ *   handled by the separate wow-tui visual shell.
  */
 
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { AssistantMessage, TextContent } from "@earendil-works/pi-ai";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 
-import { HumanLedWorkflowEditor } from "./editor.ts";
 import {
   buildDiscussPrompt,
   buildExecutePrompt,
@@ -31,59 +34,36 @@ import {
   hasPlanStructure,
   isCompletePlan,
   markCompletedSteps,
-  type TodoItem,
 } from "./plan.ts";
+import {
+  clearPlan,
+  clearTurnMode,
+  currentWorkflowState,
+  getPlanFullText,
+  getTodoItems,
+  getTurnMode,
+  hasActivePlan,
+  mutateTodoItems,
+  replacePlan,
+  resetWorkflowState,
+  restoreWorkflowState,
+  setActivePlan,
+  setExecuted,
+  setTurnMode,
+  WORKFLOW_STATE_TYPE,
+  type TurnMode,
+  type WorkflowState,
+} from "./state.ts";
 import { isSafeCommand } from "../wow/safe.ts";
 
-const STATE_TYPE = "human-led-coding-workflow";
 const MAX_RESTORED_PLAN_CHARS = 12_000;
 const READ_ONLY_ALLOWED_TOOLS = new Set(["read", "grep", "find", "ls", "bash", "webfetch"]);
 
-type TurnMode = WorkflowMode | null;
-
-interface WorkflowState {
-  activePlan: boolean;
-  planFullText: string;
-  todoItems: TodoItem[];
-  executed: boolean;
-}
-
-let turnMode: TurnMode = null;
 let hasExecutionAdjustment = false;
 let planFromPreviousDiscussion = false;
-let activePlan = false;
-let planFullText = "";
-let todoItems: TodoItem[] = [];
-let executed = false;
-
-function resetState(): void {
-  turnMode = null;
-  hasExecutionAdjustment = false;
-  planFromPreviousDiscussion = false;
-  activePlan = false;
-  planFullText = "";
-  todoItems = [];
-  executed = false;
-}
-
-function currentState(): WorkflowState {
-  return {
-    activePlan,
-    planFullText,
-    todoItems,
-    executed,
-  };
-}
-
-function restoreState(data: Partial<WorkflowState> | undefined): void {
-  activePlan = data?.activePlan ?? false;
-  planFullText = typeof data?.planFullText === "string" ? data.planFullText : "";
-  todoItems = Array.isArray(data?.todoItems) ? data.todoItems : [];
-  executed = data?.executed ?? false;
-}
 
 function persistState(pi: ExtensionAPI): void {
-  pi.appendEntry(STATE_TYPE, currentState());
+  pi.appendEntry(WORKFLOW_STATE_TYPE, currentWorkflowState());
 }
 
 function isAssistantMessage(message: AgentMessage): message is AssistantMessage {
@@ -129,6 +109,7 @@ function planVisibleInCurrentBranch(ctx: ExtensionContext): boolean {
 }
 
 function restoredPlanContext(ctx: ExtensionContext): string | undefined {
+  const planFullText = getPlanFullText();
   if (!planFullText || planVisibleInCurrentBranch(ctx)) return undefined;
   return truncatePlanForRestore(planFullText);
 }
@@ -147,7 +128,7 @@ function findLatestPlanInMessages(messages: AgentMessage[]): string | undefined 
 
 function latestWorkflowState(ctx: ExtensionContext): Partial<WorkflowState> | undefined {
   const entry = (ctx.sessionManager.getBranch() as any[])
-    .filter((candidate: any) => candidate?.type === "custom" && candidate.customType === STATE_TYPE)
+    .filter((candidate: any) => candidate?.type === "custom" && candidate.customType === WORKFLOW_STATE_TYPE)
     .pop() as { data?: Partial<WorkflowState> } | undefined;
   return entry?.data;
 }
@@ -167,45 +148,12 @@ function recoverPlanFromSession(ctx: ExtensionContext): boolean {
     const text = getTextContent(entry.message);
     if (!hasExecuteMarker(text)) continue;
 
-    planFullText = extractPlanText(text);
-    todoItems = extractPlanItems(text);
-    activePlan = true;
-    executed = false;
+    const planText = extractPlanText(text);
+    replacePlan(planText, extractPlanItems(planText), false);
     return true;
   }
 
   return false;
-}
-
-function updateStatus(ctx: ExtensionContext): void {
-  if (!ctx.hasUI) return;
-
-  if (turnMode === "discuss") {
-    ctx.ui.setStatus(STATE_TYPE, ctx.ui.theme.fg("muted", "◇ discuss"));
-  } else if (turnMode === "plan") {
-    ctx.ui.setStatus(STATE_TYPE, ctx.ui.theme.fg("warning", "◇ plan"));
-  } else if (turnMode === "revise") {
-    ctx.ui.setStatus(STATE_TYPE, ctx.ui.theme.fg("warning", "◇ revise"));
-  } else if (turnMode === "execute" && todoItems.length > 0) {
-    const completed = todoItems.filter((item) => item.completed).length;
-    ctx.ui.setStatus(STATE_TYPE, ctx.ui.theme.fg("accent", `◇ exec ${completed}/${todoItems.length}`));
-  } else if (activePlan) {
-    ctx.ui.setStatus(STATE_TYPE, ctx.ui.theme.fg("muted", "◇ plan ready"));
-  } else {
-    ctx.ui.setStatus(STATE_TYPE, undefined);
-  }
-
-  if (turnMode === "execute" && todoItems.length > 0) {
-    const lines = todoItems.map((item) => {
-      if (item.completed) {
-        return ctx.ui.theme.fg("success", "☑ ") + ctx.ui.theme.fg("muted", ctx.ui.theme.strikethrough(item.text));
-      }
-      return `${ctx.ui.theme.fg("dim", "☐ ")}${item.text}`;
-    });
-    ctx.ui.setWidget(`${STATE_TYPE}-todos`, lines);
-  } else {
-    ctx.ui.setWidget(`${STATE_TYPE}-todos`, undefined);
-  }
 }
 
 function notify(ctx: ExtensionContext, text: string, level: "info" | "warning" | "error" = "info"): void {
@@ -286,54 +234,48 @@ export default function humanLedCodingWorkflowExtension(pi: ExtensionAPI): void 
     const parsed = parseWorkflowInput(event.text);
     if (!parsed) {
       if (typeof ctx.isIdle !== "function" || ctx.isIdle()) {
-        turnMode = null;
+        clearTurnMode();
       }
-      updateStatus(ctx);
       return { action: "continue" };
     }
 
     if (parsed.mode !== "execute" && !parsed.prompt) {
       if (parsed.mode !== "plan" || !hasRecentDiscussion(ctx)) {
-        turnMode = null;
-        updateStatus(ctx);
+        clearTurnMode();
         return missingArgument(ctx, parsed.mode === "revise" ? "?!" : parsed.mode === "plan" ? "??" : "?");
       }
     }
 
     if (parsed.mode === "plan") {
-      activePlan = false;
-      planFullText = "";
-      todoItems = [];
-      executed = false;
+      clearPlan(false);
       persistState(pi);
     }
 
     planFromPreviousDiscussion = parsed.mode === "plan" && parsed.prompt.length === 0;
 
-    if (parsed.mode === "revise" && !activePlan && (!canRecoverInactivePlan(ctx) || !recoverPlanFromSession(ctx))) {
+    if (parsed.mode === "revise" && !hasActivePlan() && (!canRecoverInactivePlan(ctx) || !recoverPlanFromSession(ctx))) {
       notify(ctx, "No active plan to revise. Use ?? to create a plan first.", "info");
-      turnMode = null;
-      updateStatus(ctx);
+      clearTurnMode();
       return { action: "handled" };
     }
 
     if (parsed.mode === "execute") {
-      if (!activePlan && (!canRecoverInactivePlan(ctx) || !recoverPlanFromSession(ctx))) {
+      if (!hasActivePlan() && (!canRecoverInactivePlan(ctx) || !recoverPlanFromSession(ctx))) {
         notify(ctx, "No active plan to execute. Use ?? to create a plan first.", "info");
-        turnMode = null;
-        updateStatus(ctx);
+        clearTurnMode();
         return { action: "handled" };
       }
       hasExecutionAdjustment = parsed.prompt.length > 0;
     }
 
-    turnMode = parsed.mode;
-    updateStatus(ctx);
+    setTurnMode(parsed.mode);
     return { action: "transform", text: parsed.prompt };
   });
 
   // before_agent_start — inject mode context without changing the system prompt.
   pi.on("before_agent_start", async (_event, ctx) => {
+    const turnMode = getTurnMode();
+
     if (turnMode === "discuss") {
       return {
         message: {
@@ -371,7 +313,7 @@ export default function humanLedCodingWorkflowExtension(pi: ExtensionAPI): void 
       return {
         message: {
           customType: WORKFLOW_CONTEXT_TYPE,
-          content: `${buildExecutePrompt(todoItems, restoredPlanContext(ctx))}${adjustment}`,
+          content: `${buildExecutePrompt(getTodoItems(), restoredPlanContext(ctx))}${adjustment}`,
           display: false,
         },
       };
@@ -384,7 +326,7 @@ export default function humanLedCodingWorkflowExtension(pi: ExtensionAPI): void 
   pi.on("context", async (event) => {
     let keepIndex = -1;
 
-    if (turnMode !== null) {
+    if (getTurnMode() !== null) {
       for (let i = event.messages.length - 1; i >= 0; i--) {
         if (isWorkflowContextMessage(event.messages[i])) {
           keepIndex = i;
@@ -406,6 +348,7 @@ export default function humanLedCodingWorkflowExtension(pi: ExtensionAPI): void 
 
   // tool_call — read-only gates for discuss/plan/revise. Active tool schemas remain stable.
   pi.on("tool_call", async (event) => {
+    const turnMode = getTurnMode();
     if (!isReadOnlyMode(turnMode)) return;
 
     if (event.toolName === "edit" || event.toolName === "write") {
@@ -434,73 +377,63 @@ export default function humanLedCodingWorkflowExtension(pi: ExtensionAPI): void 
   });
 
   // turn_end — track [DONE:n] progress during execution.
-  pi.on("turn_end", async (event, ctx) => {
-    if (turnMode !== "execute" || todoItems.length === 0) return;
+  pi.on("turn_end", async (event) => {
+    if (getTurnMode() !== "execute" || getTodoItems().length === 0) return;
     if (!isAssistantMessage(event.message)) return;
 
     const text = getTextContent(event.message);
-    if (markCompletedSteps(text, todoItems) > 0) {
-      updateStatus(ctx);
+    let changed = 0;
+    mutateTodoItems((items) => {
+      changed = markCompletedSteps(text, items);
+    });
+    if (changed > 0) {
       persistState(pi);
     }
   });
 
   // agent_end — capture plans and clear transient mode state.
-  pi.on("agent_end", async (event, ctx) => {
+  pi.on("agent_end", async (event) => {
+    const turnMode = getTurnMode();
+
     if (turnMode === "plan" || turnMode === "revise") {
       const latestPlan = findLatestPlanInMessages(event.messages);
       if (latestPlan && hasExecuteMarker(latestPlan)) {
-        activePlan = true;
-        planFullText = latestPlan;
-        todoItems = extractPlanItems(latestPlan);
-        executed = false;
+        replacePlan(latestPlan, extractPlanItems(latestPlan), false);
       } else if (turnMode === "plan") {
-        activePlan = false;
-        planFullText = "";
-        todoItems = [];
-        executed = false;
+        clearPlan(false);
       }
       persistState(pi);
     }
 
     if (turnMode === "execute") {
-      executed = true;
+      setExecuted(true);
+      const todoItems = getTodoItems();
       const allExtractedStepsCompleted = todoItems.length === 0 || todoItems.every((item) => item.completed);
       if (allExtractedStepsCompleted) {
-        activePlan = false;
-        planFullText = "";
-        todoItems = [];
+        clearPlan(true);
       } else {
-        activePlan = true;
+        setActivePlan(true);
       }
       persistState(pi);
     }
 
-    turnMode = null;
+    clearTurnMode();
     hasExecutionAdjustment = false;
     planFromPreviousDiscussion = false;
-    updateStatus(ctx);
   });
 
-  // session_start — restore state and install editor.
+  // session_start — restore workflow state only. Visuals are owned by wow-tui.
   pi.on("session_start", async (_event, ctx) => {
-    resetState();
+    resetWorkflowState();
+    restoreWorkflowState(latestWorkflowState(ctx));
 
-    restoreState(latestWorkflowState(ctx));
-
-    if (activePlan && !planFullText) {
+    if (hasActivePlan() && !getPlanFullText()) {
       recoverPlanFromSession(ctx);
     }
-
-    updateStatus(ctx);
-
-    ctx.ui.setEditorComponent((tui: any, theme: any, keybindings: any) => {
-      return new HumanLedWorkflowEditor(tui, theme, keybindings);
-    });
   });
 
   pi.on("session_shutdown", async () => {
-    turnMode = null;
+    clearTurnMode();
     hasExecutionAdjustment = false;
     planFromPreviousDiscussion = false;
   });
