@@ -79,7 +79,12 @@ executes the commit. The subject stays concise, while meaningful multi-part diff
 2–5 body bullets covering important secondary changes or non-obvious rationale. No AI
 attribution, no emoji, no fluff.
 
-Optionally pass extra context: `/git-commit refactor for performance`.
+Language variants:
+- `/git-commit` keeps the default flexible language behavior.
+- `/git-commit:en` forces English subject/body text.
+- `/git-commit:zh-CN` forces Simplified Chinese subject/body text while keeping Conventional Commit type/scope in English.
+
+Optionally pass extra context: `/git-commit:en refactor for performance`.
 
 ### BTW — Isolated Side Q&A
 

@@ -138,7 +138,7 @@ Removing `./extensions/wow-tui/index.ts` from `package.json` disables these pack
 
 ### git-commit
 
-Standalone LLM call (isolated from main session context) using a balanced Conventional Commits system prompt. Reads staged diff via `git diff --cached`, truncates at 800 lines, sends to LLM for message generation. The subject stays concise, while meaningful multi-part diffs should get 2–5 body bullets covering important secondary changes or non-obvious rationale. Parses output (strips code fences, preamble, attribution) and commits via temp `COMMIT_EDITMSG` file. Supports optional user-provided extra context via command args. Uses `execOrNull()` and `execWithError()` from `wow/shell.ts`.
+Standalone LLM call (isolated from main session context) using a balanced Conventional Commits system prompt. Reads staged diff via `git diff --cached`, truncates at 800 lines, sends to LLM for message generation. The subject stays concise, while meaningful multi-part diffs should get 2–5 body bullets covering important secondary changes or non-obvious rationale. Provides `/git-commit` with flexible language behavior plus explicit variants `/git-commit:en` and `/git-commit:zh-CN`; Conventional Commit type/scope remain English for all variants. Parses output (strips code fences, preamble, attribution) and commits via temp `COMMIT_EDITMSG` file. Supports optional user-provided extra context via command args. Uses `execOrNull()` and `execWithError()` from `wow/shell.ts`.
 
 ### command-mappings
 
