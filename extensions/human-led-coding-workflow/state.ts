@@ -16,6 +16,7 @@ export interface WorkflowState {
   activePlan: boolean;
   planFullText: string;
   todoItems: TodoItem[];
+  executionActive: boolean;
   executed: boolean;
 }
 
@@ -29,6 +30,7 @@ let turnMode: TurnMode = null;
 let activePlan = false;
 let planFullText = "";
 let todoItems: TodoItem[] = [];
+let executionActive = false;
 let executed = false;
 const listeners = new Set<Listener>();
 
@@ -53,6 +55,7 @@ export function getWorkflowSnapshot(): WorkflowSnapshot {
     activePlan,
     planFullText,
     todoItems: cloneTodoItems(todoItems),
+    executionActive,
     executed,
   };
 }
@@ -62,6 +65,7 @@ export function resetWorkflowState(): void {
   activePlan = false;
   planFullText = "";
   todoItems = [];
+  executionActive = false;
   executed = false;
   emitChange();
 }
@@ -71,6 +75,7 @@ export function currentWorkflowState(): WorkflowState {
     activePlan,
     planFullText,
     todoItems: cloneTodoItems(todoItems),
+    executionActive,
     executed,
   };
 }
@@ -80,6 +85,9 @@ export function restoreWorkflowState(data: Partial<WorkflowState> | undefined): 
   planFullText = typeof data?.planFullText === "string" ? data.planFullText : "";
   todoItems = Array.isArray(data?.todoItems) ? cloneTodoItems(data.todoItems) : [];
   executed = data?.executed ?? false;
+  executionActive = typeof data?.executionActive === "boolean"
+    ? data.executionActive
+    : activePlan && executed && todoItems.some((item) => !item.completed);
   emitChange();
 }
 
@@ -117,6 +125,7 @@ export function replacePlan(text: string, items: TodoItem[], isExecuted = false)
   activePlan = true;
   planFullText = text;
   todoItems = cloneTodoItems(items);
+  executionActive = false;
   executed = isExecuted;
   emitChange();
 }
@@ -125,12 +134,19 @@ export function clearPlan(isExecuted = false): void {
   activePlan = false;
   planFullText = "";
   todoItems = [];
+  executionActive = false;
   executed = isExecuted;
   emitChange();
 }
 
 export function setActivePlan(value: boolean): void {
   activePlan = value;
+  if (!value) executionActive = false;
+  emitChange();
+}
+
+export function setExecutionActive(value: boolean): void {
+  executionActive = value && activePlan;
   emitChange();
 }
 

@@ -49,6 +49,7 @@ import {
   restoreWorkflowState,
   setActivePlan,
   setExecuted,
+  setExecutionActive,
   setTurnMode,
   WORKFLOW_STATE_TYPE,
   type TurnMode,
@@ -265,6 +266,8 @@ export default function humanLedCodingWorkflowExtension(pi: ExtensionAPI): void 
         clearTurnMode();
         return { action: "handled" };
       }
+      setExecutionActive(true);
+      persistState(pi);
       hasExecutionAdjustment = parsed.prompt.length > 0;
     }
 
@@ -413,6 +416,7 @@ export default function humanLedCodingWorkflowExtension(pi: ExtensionAPI): void 
         clearPlan(true);
       } else {
         setActivePlan(true);
+        setExecutionActive(true);
       }
       persistState(pi);
     }
