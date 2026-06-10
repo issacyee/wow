@@ -73,12 +73,32 @@ stable for provider prefix-cache/APC systems.
 
 ### Git Commit — `/git-commit`
 
-Generates a terse [Conventional Commits](https://www.conventionalcommits.org/) message
+Generates a balanced [Conventional Commits](https://www.conventionalcommits.org/) message
 from staged changes via a direct LLM call (isolated from main session context), then
-executes the commit. Uses "caveman-commit" style — ultra-compressed, subject ≤50 chars,
-body only when the "why" isn't obvious. No AI attribution, no emoji, no fluff.
+executes the commit. The subject stays concise, while meaningful multi-part diffs get
+2–5 body bullets covering important secondary changes or non-obvious rationale. No AI
+attribution, no emoji, no fluff.
 
 Optionally pass extra context: `/git-commit refactor for performance`.
+
+### BTW — Isolated Side Q&A
+
+Threaded side-channel Q&A for conceptual follow-ups that should not pollute the main
+coding context. BTW uses standalone LLM calls and persists topic state as custom
+entries outside provider context. Multiple `/btw` turns are linked by the current
+BTW topic; separate topics remain isolated. Topic-id commands support argument
+completion, and when no id is provided in interactive mode they open a selector.
+
+| Command | Behavior |
+|---------|----------|
+| `/btw <question>` | Ask in the current open topic; if none exists, create/select one |
+| `/btw:new <question>` | Create a new topic and ask the first question |
+| `/btw:list` | List open topics (`--closed` / `--all` for archived topics) |
+| `/btw:switch <id>` | Switch the current topic |
+| `/btw:show [id]` | Show a topic transcript |
+| `/btw:close [id]` | Archive a topic without deleting it |
+| `/btw:reopen <id>` | Reopen an archived topic |
+| `/btw:promote [id]` | Explicitly promote a concise conclusion into the main context |
 
 ### Command Mappings — Declarative Aliases
 
@@ -97,6 +117,7 @@ It owns package-level singleton TUI resources:
 - **Footer compositor**: custom two-line footer with clickable CWD, git branch, model/thinking level, context usage bar, token/cache/cost stats, and extension statuses
 - **Composite editor**: `𝝅` top-border label, workflow prefix border colors, and Chinese IME full-width prefix conversion (`？` `！` `￥` → `?` `!` `$`)
 - **Workflow presenter**: status indicator and todo widget based on workflow state
+- **BTW message rendering**: custom rendering for `/btw:*` side-channel messages
 - **Focus-style tool rendering**: built-in tools (`read`, `bash`, `edit`, `write`, `grep`, `find`, `ls`) render as single dim-text lines with hidden result previews
 
 Custom tools can reuse the same dim rendering via shared utilities from `wow/renderer.ts`
@@ -232,9 +253,15 @@ wow/
 │   │   ├── footer.ts        # Two-line footer compositor
 │   │   ├── editor.ts        # Composite editor
 │   │   ├── tools.ts         # Focus-style built-in tool rendering overrides
-│   │   └── widgets.ts       # Workflow status/todo presenters
+│   │   ├── widgets.ts       # Workflow status/todo presenters
+│   │   └── btw.ts           # BTW custom message renderers
 │   ├── webfetch/            # Fetch web content and convert to markdown/text/html
 │   │   └── index.ts         # webfetch tool using native fetch + node-html-markdown conversion
+│   ├── btw/                 # /btw:* isolated side-channel Q&A threads
+│   │   ├── index.ts         # Commands, standalone LLM calls, context filtering
+│   │   ├── prompts.ts       # Side-channel and promotion prompts
+│   │   ├── state.ts         # Topic state persisted via custom entries
+│   │   └── types.ts         # Shared custom message type identifiers
 │   └── prefix-cache/        # Reasonix-style prefix-cache optimizations and diagnostics
 │       ├── index.ts         # Reasoning stripping, schema canonicalization, cache commands
 │       ├── reasoning.ts     # Provider/model allowlist and thinking block removal

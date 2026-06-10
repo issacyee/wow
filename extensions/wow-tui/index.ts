@@ -8,6 +8,7 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { subscribeWorkflowState, WORKFLOW_STATE_TYPE } from "../human-led-coding-workflow/state.ts";
+import { registerBtwRendering } from "./btw.ts";
 import { WOW_TUI_CONFIG } from "./config.ts";
 import { createEditorComponent } from "./editor.ts";
 import { installFooter } from "./footer.ts";
@@ -17,6 +18,10 @@ import { updateWorkflowWidgets } from "./widgets.ts";
 export default function wowTuiExtension(pi: ExtensionAPI): void {
   if (WOW_TUI_CONFIG.focusToolRendering) {
     registerFocusToolRendering(pi);
+  }
+
+  if (WOW_TUI_CONFIG.btwRendering) {
+    registerBtwRendering(pi);
   }
 
   let unsubscribeWorkflow: (() => void) | undefined;

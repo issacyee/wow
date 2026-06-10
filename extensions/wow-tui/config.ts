@@ -10,4 +10,5 @@ export const WOW_TUI_CONFIG = {
   editor: true,
   workflowWidgets: true,
   focusToolRendering: true,
+  btwRendering: true,
 } as const;

@@ -1,12 +1,12 @@
 /**
  * Git Commit — /git-commit command
  *
- * Generates a terse Conventional Commits message from staged changes
+ * Generates a balanced Conventional Commits message from staged changes
  * via a direct LLM call (isolated from main session context), then
  * executes the commit.
  *
- * Style: caveman-commit — ultra-compressed, subject ≤50 chars, body
- * only when "why" isn't obvious. No AI attribution, no emoji, no fluff.
+ * Style: concise subject plus body bullets when the diff contains multiple
+ * meaningful changes. No AI attribution, no emoji, no fluff.
  */
 
 import { complete, type Message } from "@earendil-works/pi-ai";
@@ -16,9 +16,9 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
 
-// ── System Prompt: caveman-commit style ──
+// ── System Prompt: balanced Conventional Commits style ──
 
-const SYSTEM_PROMPT = `You are a terse commit message generator. Follow these rules strictly.
+const SYSTEM_PROMPT = `You are a balanced Conventional Commits message generator. Follow these rules strictly.
 
 ## Output Format
 Output ONLY the commit message, no preamble, no explanation, no code fences.
@@ -28,12 +28,26 @@ Output ONLY the commit message, no preamble, no explanation, no code fences.
 
 Types: feat, fix, refactor, perf, docs, test, chore, build, ci, style, revert
 Scope is optional. Imperative mood: "add", "fix", "remove" not "added"/"adds"/"adding".
-≤50 chars when possible, hard cap 72. No trailing period.
+Aim for ≤50 chars when possible, hard cap 72. No trailing period.
+Summarize the primary intent; do not cram every detail into the subject.
 
-## Body (only when needed)
-Skip entirely when subject is self-explanatory.
-Add body only for: non-obvious why, breaking changes, migration notes, linked issues.
-Wrap at 72 chars. Bullets with "-" not "*".
+## Body
+Omit the body if the subject fully captures the entire change.
+
+Include a body when:
+- The diff contains multiple meaningful changes.
+- Changes span multiple modules, commands, docs, or behaviors.
+- The subject would omit important secondary work.
+- There are migrations, compatibility notes, linked issues, or non-obvious rationale.
+
+Body format:
+- Blank line after the subject.
+- Use 2-5 concise bullets.
+- Each bullet starts with "- ".
+- Summarize distinct meaningful changes, not every file.
+- Prefer concrete verbs: add, update, refactor, document, fix.
+- Include why when non-obvious; secondary what is also allowed.
+- Wrap at 72 chars.
 
 ## NEVER include
 - "This commit does X", "I", "we", "now", "currently"
@@ -46,8 +60,15 @@ Use ! after type/scope. Always include BREAKING CHANGE: in body.
 
 ## Examples
 
-Diff: new API endpoint
-feat(api): add GET /users/:id/profile
+Diff: single documentation clarification
+docs(readme): clarify installation steps
+
+Diff: side-channel Q&A feature plus docs
+feat(btw): add side-channel Q&A
+
+- add threaded /btw:* commands with topic switching
+- persist BTW state outside provider context
+- document BTW usage and command list
 
 Diff: breaking route rename
 feat(api)!: rename /v1/orders to /v1/checkout
@@ -77,7 +98,7 @@ function parseCommitMessage(raw: string): string {
 
 export default function (pi: ExtensionAPI) {
   pi.registerCommand("git-commit", {
-    description: "Generate a terse Conventional Commits message from staged changes and commit",
+    description: "Generate a balanced Conventional Commits message from staged changes and commit",
     handler: async (args, ctx) => {
       if (!ctx.model) {
         ctx.ui.notify("No model selected", "error");

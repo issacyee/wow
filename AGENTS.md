@@ -37,9 +37,15 @@ wow/
 │   │   ├── footer.ts        # Two-line footer compositor
 │   │   ├── editor.ts        # Composite editor: pi label, workflow border, IME conversion
 │   │   ├── tools.ts         # Focus-style built-in tool rendering overrides
-│   │   └── widgets.ts       # Workflow status/todo presenters
+│   │   ├── widgets.ts       # Workflow status/todo presenters
+│   │   └── btw.ts           # BTW custom message renderers
 │   ├── webfetch/            # Fetch web content and convert to markdown/text/html
 │   │   └── index.ts         # webfetch tool using native fetch + node-html-markdown conversion
+│   ├── btw/                 # /btw:* isolated side-channel Q&A threads
+│   │   ├── index.ts         # Commands, standalone LLM calls, context filtering
+│   │   ├── prompts.ts       # Side-channel and promotion prompts
+│   │   ├── state.ts         # Topic state persisted via custom entries
+│   │   └── types.ts         # Shared custom message type identifiers
 │   └── prefix-cache/        # Reasonix-style prefix-cache optimizations and diagnostics
 │       ├── index.ts         # Reasoning stripping, schema canonicalization, cache commands
 │       ├── reasoning.ts     # Provider/model allowlist and thinking block removal
@@ -70,7 +76,9 @@ and other technical content use English.
   - `@earendil-works/pi-tui` — TUI components (`Text`, `Container`), used by `wow-tui` and tool renderers
 - Run `/reload` or restart pi after editing extensions.
 - **Shared utilities** live in `extensions/wow/` — import from there, don't duplicate.
-- **Visual shell boundary**: `extensions/wow-tui/` is the only package extension that should own singleton TUI resources such as `ctx.ui.setFooter()`, `ctx.ui.setEditorComponent()`, and package-wide tool rendering overrides. Logic extensions should expose state and behavior, not visual composition.
+- **Visual shell boundary**: `extensions/wow-tui/` is the only package extension that should own visual composition: singleton TUI resources (`ctx.ui.setFooter()`, `ctx.ui.setEditorComponent()`, status/widgets), package-wide tool rendering overrides, and custom message renderers. Logic extensions should expose state, types, commands, hooks, and behavior, not visual presentation.
+- Logic extensions must not import runtime TUI components from `@earendil-works/pi-tui` (`Text`, `Box`, `Container`, etc.) or call `pi.registerMessageRenderer()` / define tool `renderCall` or `renderResult`. Feature-specific renderers belong in `extensions/wow-tui/` and should consume exported state/types from logic extensions. Type-only imports for command completions are allowed when there is no coding-agent type export.
+- Command-level user interactions (`ctx.ui.select()`, `ctx.ui.confirm()`, `ctx.ui.input()`, `ctx.ui.notify()`) are allowed in logic extensions when needed to complete a command; they must not install persistent visual shell resources.
 - **Prefix-cache safety**: preserve byte-stable prompt prefixes. Do not add per-turn timestamps, random IDs, counters, or OS-locale strings to the system prompt. Do not switch active tools for workflow modes; enforce permissions with `tool_call` gates. Truncate custom tool outputs before returning them to the LLM.
 - Keep the read-only bash allowlist in `extensions/wow/safe.ts` comprehensive — omissions may cause data loss in read-only workflow modes.
 - The unified editor in `wow-tui` converts full-width `？`/`！`/`￥` to half-width `?`/`!`/`$` at workflow-prefix positions so Chinese IME users don't need to toggle input method.
@@ -124,16 +132,21 @@ Responsibilities:
 - Applies workflow prefix border colors and Chinese IME prefix conversion.
 - Presents workflow status and todo widgets by subscribing to workflow state.
 - Re-registers built-in tools with focus-style minimal rendering.
+- Registers custom message renderers such as BTW side-channel message rendering.
 
 Removing `./extensions/wow-tui/index.ts` from `package.json` disables these package visuals while leaving logic extensions functional.
 
 ### git-commit
 
-Standalone LLM call (isolated from main session context) using the caveman-commit system prompt. Reads staged diff via `git diff --cached`, truncates at 800 lines, sends to LLM for message generation. Parses output (strips code fences, preamble, attribution) and commits via temp `COMMIT_EDITMSG` file. Supports optional user-provided extra context via command args. Uses `execOrNull()` and `execWithError()` from `wow/shell.ts`.
+Standalone LLM call (isolated from main session context) using a balanced Conventional Commits system prompt. Reads staged diff via `git diff --cached`, truncates at 800 lines, sends to LLM for message generation. The subject stays concise, while meaningful multi-part diffs should get 2–5 body bullets covering important secondary changes or non-obvious rationale. Parses output (strips code fences, preamble, attribution) and commits via temp `COMMIT_EDITMSG` file. Supports optional user-provided extra context via command args. Uses `execOrNull()` and `execWithError()` from `wow/shell.ts`.
 
 ### command-mappings
 
 Declarative array (`COMMAND_MAPPINGS`) of `{ name, description, handler }` objects. Currently provides `/exit` as alias for `/quit`. Add new mappings by appending entries.
+
+### btw
+
+Threaded side-channel Q&A for concept explanations and clarification follow-ups that should not pollute the main coding context. Commands use pi/skills-style names: `/btw`, `/btw:new`, `/btw:list`, `/btw:switch`, `/btw:show`, `/btw:close`, `/btw:reopen`, and `/btw:promote`. The extension uses standalone `complete()` calls and persists topic state via `btw-state` custom entries outside LLM context. Topic-id commands provide argument completions and interactive selectors. Only `/btw:promote` writes a concise user-approved note back into the main session. Visual rendering for BTW custom messages is owned by `extensions/wow-tui/btw.ts`; the logic extension exports only shared message type identifiers from `types.ts`.
 
 ### webfetch
 

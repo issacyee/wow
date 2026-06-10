@@ -21,6 +21,7 @@
       "./extensions/command-mappings/index.ts",
       "./extensions/wow-tui/index.ts",
       "./extensions/webfetch/index.ts",
+      "./extensions/btw/index.ts",
       "./extensions/prefix-cache/index.ts"
     ],
     "skills": [
