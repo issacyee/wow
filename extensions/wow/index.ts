@@ -30,12 +30,20 @@ export {
 } from "./locale.ts";
 
 export {
+  AdaptiveToolLine,
   createFocusRenderCall,
   focusRenderCall,
   focusRenderResult,
 } from "./renderer.ts";
 
 export {
+  fitCommand,
+  fitEnd,
+  fitMiddle,
+  fitPath,
+  fitUrl,
+  linkPathAdaptive,
+  linkUrlAdaptive,
   shortenPath,
   linkPath,
   shortenCommand,
