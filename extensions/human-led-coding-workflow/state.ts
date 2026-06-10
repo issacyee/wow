@@ -3,6 +3,11 @@
  *
  * Logic owns mutations. Visual layers may subscribe/read snapshots, but this
  * module has no TUI dependency and never writes to LLM context by itself.
+ *
+ * Pi loads package extensions through separate jiti module instances, so plain
+ * module-level variables are not reliably shared between logic and visual
+ * extensions. Keep the mutable store on globalThis so human-led-coding-workflow
+ * and wow-tui observe the same state and listener set.
  */
 
 import type { WorkflowMode } from "./prompts.ts";
@@ -26,77 +31,104 @@ export interface WorkflowSnapshot extends WorkflowState {
 
 type Listener = () => void;
 
-let turnMode: TurnMode = null;
-let activePlan = false;
-let planFullText = "";
-let todoItems: TodoItem[] = [];
-let executionActive = false;
-let executed = false;
-const listeners = new Set<Listener>();
+interface WorkflowStore extends WorkflowSnapshot {
+  listeners: Set<Listener>;
+}
+
+const WORKFLOW_STORE_KEY = Symbol.for("wow.human-led-coding-workflow.state");
+
+function createStore(): WorkflowStore {
+  return {
+    turnMode: null,
+    activePlan: false,
+    planFullText: "",
+    todoItems: [],
+    executionActive: false,
+    executed: false,
+    listeners: new Set<Listener>(),
+  };
+}
+
+function getStore(): WorkflowStore {
+  const globalStore = globalThis as any;
+  const store = (globalStore[WORKFLOW_STORE_KEY] ??= createStore()) as Partial<WorkflowStore>;
+
+  store.turnMode ??= null;
+  store.activePlan ??= false;
+  store.planFullText ??= "";
+  store.todoItems ??= [];
+  store.executionActive ??= false;
+  store.executed ??= false;
+  store.listeners ??= new Set<Listener>();
+
+  return store as WorkflowStore;
+}
+
+const store = getStore();
 
 function cloneTodoItems(items: TodoItem[]): TodoItem[] {
   return items.map((item) => ({ ...item }));
 }
 
 function emitChange(): void {
-  for (const listener of listeners) {
+  for (const listener of store.listeners) {
     listener();
   }
 }
 
 export function subscribeWorkflowState(listener: Listener): () => void {
-  listeners.add(listener);
-  return () => listeners.delete(listener);
+  store.listeners.add(listener);
+  return () => store.listeners.delete(listener);
 }
 
 export function getWorkflowSnapshot(): WorkflowSnapshot {
   return {
-    turnMode,
-    activePlan,
-    planFullText,
-    todoItems: cloneTodoItems(todoItems),
-    executionActive,
-    executed,
+    turnMode: store.turnMode,
+    activePlan: store.activePlan,
+    planFullText: store.planFullText,
+    todoItems: cloneTodoItems(store.todoItems),
+    executionActive: store.executionActive,
+    executed: store.executed,
   };
 }
 
 export function resetWorkflowState(): void {
-  turnMode = null;
-  activePlan = false;
-  planFullText = "";
-  todoItems = [];
-  executionActive = false;
-  executed = false;
+  store.turnMode = null;
+  store.activePlan = false;
+  store.planFullText = "";
+  store.todoItems = [];
+  store.executionActive = false;
+  store.executed = false;
   emitChange();
 }
 
 export function currentWorkflowState(): WorkflowState {
   return {
-    activePlan,
-    planFullText,
-    todoItems: cloneTodoItems(todoItems),
-    executionActive,
-    executed,
+    activePlan: store.activePlan,
+    planFullText: store.planFullText,
+    todoItems: cloneTodoItems(store.todoItems),
+    executionActive: store.executionActive,
+    executed: store.executed,
   };
 }
 
 export function restoreWorkflowState(data: Partial<WorkflowState> | undefined): void {
-  activePlan = data?.activePlan ?? false;
-  planFullText = typeof data?.planFullText === "string" ? data.planFullText : "";
-  todoItems = Array.isArray(data?.todoItems) ? cloneTodoItems(data.todoItems) : [];
-  executed = data?.executed ?? false;
-  executionActive = typeof data?.executionActive === "boolean"
+  store.activePlan = data?.activePlan ?? false;
+  store.planFullText = typeof data?.planFullText === "string" ? data.planFullText : "";
+  store.todoItems = Array.isArray(data?.todoItems) ? cloneTodoItems(data.todoItems) : [];
+  store.executed = data?.executed ?? false;
+  store.executionActive = typeof data?.executionActive === "boolean"
     ? data.executionActive
-    : activePlan && executed && todoItems.some((item) => !item.completed);
+    : store.activePlan && store.executed && store.todoItems.some((item) => !item.completed);
   emitChange();
 }
 
 export function getTurnMode(): TurnMode {
-  return turnMode;
+  return store.turnMode;
 }
 
 export function setTurnMode(mode: TurnMode): void {
-  turnMode = mode;
+  store.turnMode = mode;
   emitChange();
 }
 
@@ -105,57 +137,57 @@ export function clearTurnMode(): void {
 }
 
 export function hasActivePlan(): boolean {
-  return activePlan;
+  return store.activePlan;
 }
 
 export function getPlanFullText(): string {
-  return planFullText;
+  return store.planFullText;
 }
 
 export function setPlanFullText(text: string): void {
-  planFullText = text;
+  store.planFullText = text;
   emitChange();
 }
 
 export function getTodoItems(): TodoItem[] {
-  return cloneTodoItems(todoItems);
+  return cloneTodoItems(store.todoItems);
 }
 
 export function replacePlan(text: string, items: TodoItem[], isExecuted = false): void {
-  activePlan = true;
-  planFullText = text;
-  todoItems = cloneTodoItems(items);
-  executionActive = false;
-  executed = isExecuted;
+  store.activePlan = true;
+  store.planFullText = text;
+  store.todoItems = cloneTodoItems(items);
+  store.executionActive = false;
+  store.executed = isExecuted;
   emitChange();
 }
 
 export function clearPlan(isExecuted = false): void {
-  activePlan = false;
-  planFullText = "";
-  todoItems = [];
-  executionActive = false;
-  executed = isExecuted;
+  store.activePlan = false;
+  store.planFullText = "";
+  store.todoItems = [];
+  store.executionActive = false;
+  store.executed = isExecuted;
   emitChange();
 }
 
 export function setActivePlan(value: boolean): void {
-  activePlan = value;
-  if (!value) executionActive = false;
+  store.activePlan = value;
+  if (!value) store.executionActive = false;
   emitChange();
 }
 
 export function setExecutionActive(value: boolean): void {
-  executionActive = value && activePlan;
+  store.executionActive = value && store.activePlan;
   emitChange();
 }
 
 export function setExecuted(value: boolean): void {
-  executed = value;
+  store.executed = value;
   emitChange();
 }
 
 export function mutateTodoItems(mutator: (items: TodoItem[]) => void): void {
-  mutator(todoItems);
+  mutator(store.todoItems);
   emitChange();
 }
