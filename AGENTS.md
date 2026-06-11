@@ -33,6 +33,7 @@ wow/
 │   ├── wow-tui/             # Unified visual shell / TUI compositor
 │   │   ├── index.ts         # Owns singleton TUI resources and installs presenters
 │   │   ├── config.ts        # Static visual feature toggles
+│   │   ├── config-ui.ts     # /config:global and /config:project scoped settings UI
 │   │   ├── palette.ts       # Shared color palette
 │   │   ├── footer.ts        # Two-line footer compositor
 │   │   ├── editor.ts        # Composite editor: pi label, workflow border, IME conversion
@@ -126,6 +127,7 @@ A human-led coding workflow triggered by `?`/`??`/`?!`/`$` input prefixes. Norma
 Unified visual shell and TUI compositor for this package. It centralizes pure visual features so logic extensions can be used without visual code.
 
 Responsibilities:
+- Registers `/config:global` and `/config:project` for scoped interactive settings management.
 - Installs the two-line footer via `ctx.ui.setFooter()`.
 - Installs the composite editor via `ctx.ui.setEditorComponent()`.
 - Applies the editor `𝝅` top-border label.

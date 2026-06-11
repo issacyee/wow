@@ -10,6 +10,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { subscribeWorkflowState, WORKFLOW_STATE_TYPE } from "../human-led-coding-workflow/state.ts";
 import { installBtwAskTimer, registerBtwRendering } from "./btw.ts";
 import { WOW_TUI_CONFIG } from "./config.ts";
+import { registerConfigUI } from "./config-ui.ts";
 import { createEditorComponent } from "./editor.ts";
 import { installFooter } from "./footer.ts";
 import { registerFocusToolRendering } from "./tools.ts";
@@ -17,6 +18,8 @@ import { updateWorkflowWidgets } from "./widgets.ts";
 import { createWorkingTimerController } from "./working.ts";
 
 export default function wowTuiExtension(pi: ExtensionAPI): void {
+  registerConfigUI(pi);
+
   if (WOW_TUI_CONFIG.focusToolRendering) {
     registerFocusToolRendering(pi);
   }

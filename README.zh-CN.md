@@ -100,6 +100,7 @@ BTW 使用独立 LLM 调用，并把 topic state 作为 custom entries 持久化
 - **Workflow presenter**：基于 workflow state 展示 status indicator 和 todo widget
 - **BTW message rendering**：为 `/btw:*` side-channel messages 提供自定义渲染
 - **Focus-style tool rendering**：内置工具（`read`、`bash`、`edit`、`write`、`grep`、`find`、`ls`）以单行 dim-text 显示工具调用，并隐藏结果预览
+- **Config UI**：`/config:global` 和 `/config:project` 打开固定 scope 的交互式配置界面，可管理模型/thinking 默认值、常用 settings（theme、transport、queue、retry、compaction、terminal/editor、shell/session、warnings），以及资源路径/source 数组（`extensions`、`skills`、`prompts`、`themes`、`packages`）。项目级模型变更会立即应用，同时恢复原来的全局默认模型。
 
 自定义工具可以复用 `wow/renderer.ts` 中的共享 dim rendering 工具（`createFocusRenderCall`、`focusRenderResult`）。
 

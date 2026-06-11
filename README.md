@@ -124,6 +124,7 @@ It owns package-level singleton TUI resources:
 - **Workflow presenter**: status indicator and todo widget based on workflow state
 - **BTW message rendering**: custom rendering for `/btw:*` side-channel messages
 - **Focus-style tool rendering**: built-in tools (`read`, `bash`, `edit`, `write`, `grep`, `find`, `ls`) render as single dim-text lines with hidden result previews
+- **Config UI**: `/config:global` and `/config:project` open scoped interactive settings UIs for model/thinking defaults, common settings (theme, transport, queues, retry, compaction, terminal/editor, shell/session, warnings), and resource path/source arrays (`extensions`, `skills`, `prompts`, `themes`, `packages`). Project model changes are applied immediately while restoring the previous global default model.
 
 Custom tools can reuse the same dim rendering via shared utilities from `wow/renderer.ts`
 (`createFocusRenderCall`, `focusRenderResult`).
