@@ -3,6 +3,10 @@
  *
  * BTW state is persisted via pi.appendEntry() custom entries only. It is not
  * injected into the main LLM context unless explicitly promoted by the user.
+ *
+ * Pi can load package extensions through separate jiti module instances, so the
+ * mutable store lives on globalThis. This lets the logic extension and wow-tui
+ * observe the same transient ask status and topic state.
  */
 
 export const BTW_STATE_TYPE = "btw-state";
@@ -33,14 +37,56 @@ export interface BtwState {
   currentTopicId?: string;
   nextId: number;
   topics: BtwTopic[];
+  askProgresses?: BtwAskProgress[];
+}
+
+export type BtwAskPhase = "asking" | "asked" | "cancelled" | "failed";
+
+export interface BtwAskProgress {
+  progressId: string;
+  topicId: string;
+  title: string;
+  phase: BtwAskPhase;
+  startedAt: number;
+  durationMs?: number;
+  updatedAt: number;
+  error?: string;
 }
 
 type Listener = () => void;
 
-let currentTopicId: string | undefined;
-let nextId = 1;
-let topics: BtwTopic[] = [];
-const listeners = new Set<Listener>();
+interface BtwStore extends BtwState {
+  askProgresses: Map<string, BtwAskProgress>;
+  listeners: Set<Listener>;
+}
+
+const BTW_STORE_KEY = Symbol.for("wow.btw.state");
+
+function createStore(): BtwStore {
+  return {
+    currentTopicId: undefined,
+    nextId: 1,
+    topics: [],
+    askProgresses: new Map<string, BtwAskProgress>(),
+    listeners: new Set<Listener>(),
+  };
+}
+
+function getStore(): BtwStore {
+  const globalStore = globalThis as any;
+  const store = (globalStore[BTW_STORE_KEY] ??= createStore()) as Partial<BtwStore>;
+
+  store.nextId = typeof store.nextId === "number" && store.nextId > 0 ? Math.floor(store.nextId) : 1;
+  store.topics ??= [];
+  if (!(store.askProgresses instanceof Map)) {
+    store.askProgresses = new Map<string, BtwAskProgress>();
+  }
+  store.listeners ??= new Set<Listener>();
+
+  return store as BtwStore;
+}
+
+const store = getStore();
 
 function cloneTopic(topic: BtwTopic): BtwTopic {
   return {
@@ -54,7 +100,7 @@ function cloneTopics(value: BtwTopic[]): BtwTopic[] {
 }
 
 function emitChange(): void {
-  for (const listener of listeners) listener();
+  for (const listener of store.listeners) listener();
 }
 
 function normalizeNextId(value: unknown, restoredTopics: BtwTopic[]): number {
@@ -68,6 +114,33 @@ function normalizeNextId(value: unknown, restoredTopics: BtwTopic[]): number {
     if (match) maxId = Math.max(maxId, Number(match[1]));
   }
   return maxId + 1;
+}
+
+function normalizeProgress(value: any): BtwAskProgress | null {
+  if (!value || typeof value !== "object") return null;
+  if (typeof value.progressId !== "string" || !value.progressId.trim()) return null;
+  if (typeof value.topicId !== "string" || !value.topicId.trim()) return null;
+
+  const phase: BtwAskPhase =
+    value.phase === "asked" || value.phase === "cancelled" || value.phase === "failed"
+      ? value.phase
+      : "cancelled";
+  const startedAt = typeof value.startedAt === "number" ? value.startedAt : Date.now();
+  const durationMs = typeof value.durationMs === "number"
+    ? Math.max(0, Math.round(value.durationMs))
+    : undefined;
+  const updatedAt = typeof value.updatedAt === "number" ? value.updatedAt : startedAt;
+
+  return {
+    progressId: value.progressId.trim(),
+    topicId: value.topicId.trim(),
+    title: typeof value.title === "string" && value.title.trim() ? value.title.trim() : value.topicId.trim(),
+    phase,
+    startedAt,
+    durationMs,
+    updatedAt,
+    error: typeof value.error === "string" ? value.error : undefined,
+  };
 }
 
 function normalizeTopic(value: any): BtwTopic | null {
@@ -105,14 +178,15 @@ function normalizeTopic(value: any): BtwTopic | null {
 }
 
 export function subscribeBtwState(listener: Listener): () => void {
-  listeners.add(listener);
-  return () => listeners.delete(listener);
+  store.listeners.add(listener);
+  return () => store.listeners.delete(listener);
 }
 
 export function resetBtwState(): void {
-  currentTopicId = undefined;
-  nextId = 1;
-  topics = [];
+  store.currentTopicId = undefined;
+  store.nextId = 1;
+  store.topics = [];
+  store.askProgresses.clear();
   emitChange();
 }
 
@@ -120,12 +194,16 @@ export function restoreBtwState(data: Partial<BtwState> | undefined): void {
   const restoredTopics = Array.isArray(data?.topics)
     ? data.topics.map(normalizeTopic).filter((topic): topic is BtwTopic => topic !== null)
     : [];
+  const restoredProgresses = Array.isArray(data?.askProgresses)
+    ? data.askProgresses.map(normalizeProgress).filter((progress): progress is BtwAskProgress => progress !== null)
+    : [];
 
-  topics = restoredTopics;
-  nextId = normalizeNextId(data?.nextId, restoredTopics);
+  store.topics = restoredTopics;
+  store.askProgresses = new Map(restoredProgresses.map((progress) => [progress.progressId, progress]));
+  store.nextId = normalizeNextId(data?.nextId, restoredTopics);
 
   const restoredCurrent = typeof data?.currentTopicId === "string" ? data.currentTopicId : undefined;
-  currentTopicId = restoredCurrent && topics.some((topic) => topic.id === restoredCurrent && topic.status === "open")
+  store.currentTopicId = restoredCurrent && store.topics.some((topic) => topic.id === restoredCurrent && topic.status === "open")
     ? restoredCurrent
     : undefined;
 
@@ -134,18 +212,70 @@ export function restoreBtwState(data: Partial<BtwState> | undefined): void {
 
 export function currentBtwState(): BtwState {
   return {
-    currentTopicId,
-    nextId,
-    topics: cloneTopics(topics),
+    currentTopicId: store.currentTopicId,
+    nextId: store.nextId,
+    topics: cloneTopics(store.topics),
+    askProgresses: [...store.askProgresses.values()]
+      .filter((progress) => progress.phase !== "asking")
+      .map(cloneProgress),
   };
 }
 
+function cloneProgress(progress: BtwAskProgress): BtwAskProgress {
+  return { ...progress };
+}
+
+export function getBtwAskProgress(progressId: string | undefined): BtwAskProgress | undefined {
+  if (!progressId) return undefined;
+  const progress = store.askProgresses.get(progressId);
+  return progress ? cloneProgress(progress) : undefined;
+}
+
+export function hasActiveBtwAskProgress(): boolean {
+  for (const progress of store.askProgresses.values()) {
+    if (progress.phase === "asking") return true;
+  }
+  return false;
+}
+
+export function startBtwAskProgress(input: {
+  progressId: string;
+  topicId: string;
+  title: string;
+  startedAt?: number;
+}): BtwAskProgress {
+  const startedAt = input.startedAt ?? Date.now();
+  const progress: BtwAskProgress = {
+    progressId: input.progressId,
+    topicId: input.topicId,
+    title: input.title,
+    phase: "asking",
+    startedAt,
+    updatedAt: startedAt,
+  };
+  store.askProgresses.set(progress.progressId, progress);
+  emitChange();
+  return cloneProgress(progress);
+}
+
+export function updateBtwAskProgress(
+  progressId: string,
+  patch: Partial<Pick<BtwAskProgress, "phase" | "durationMs" | "updatedAt" | "error">>,
+): BtwAskProgress | undefined {
+  const progress = store.askProgresses.get(progressId);
+  if (!progress) return undefined;
+
+  Object.assign(progress, patch, { updatedAt: patch.updatedAt ?? Date.now() });
+  emitChange();
+  return cloneProgress(progress);
+}
+
 export function getCurrentTopicId(): string | undefined {
-  return currentTopicId;
+  return store.currentTopicId;
 }
 
 export function setCurrentTopicId(id: string | undefined): void {
-  currentTopicId = id;
+  store.currentTopicId = id;
   emitChange();
 }
 
@@ -157,7 +287,7 @@ export function createTopic(input: {
 }): BtwTopic {
   const now = input.now ?? Date.now();
   const topic: BtwTopic = {
-    id: `b${nextId++}`,
+    id: `b${store.nextId++}`,
     title: input.title,
     status: "open",
     anchorEntryId: input.anchorEntryId,
@@ -167,25 +297,25 @@ export function createTopic(input: {
     updatedAt: now,
   };
 
-  topics.push(topic);
-  currentTopicId = topic.id;
+  store.topics.push(topic);
+  store.currentTopicId = topic.id;
   emitChange();
   return cloneTopic(topic);
 }
 
 export function getTopic(id: string | undefined): BtwTopic | undefined {
   if (!id) return undefined;
-  const topic = topics.find((candidate) => candidate.id === id);
+  const topic = store.topics.find((candidate) => candidate.id === id);
   return topic ? cloneTopic(topic) : undefined;
 }
 
 export function getTopicRef(id: string | undefined): BtwTopic | undefined {
   if (!id) return undefined;
-  return topics.find((candidate) => candidate.id === id);
+  return store.topics.find((candidate) => candidate.id === id);
 }
 
 export function getTopics(status: BtwTopicStatus | "all" = "all"): BtwTopic[] {
-  const filtered = status === "all" ? topics : topics.filter((topic) => topic.status === status);
+  const filtered = status === "all" ? store.topics : store.topics.filter((topic) => topic.status === status);
   return cloneTopics(filtered);
 }
 
@@ -216,7 +346,7 @@ export function closeTopic(id: string): BtwTopic | undefined {
   topic.status = "closed";
   topic.closedAt = Date.now();
   topic.updatedAt = topic.closedAt;
-  if (currentTopicId === id) currentTopicId = undefined;
+  if (store.currentTopicId === id) store.currentTopicId = undefined;
   emitChange();
   return cloneTopic(topic);
 }
@@ -228,7 +358,7 @@ export function reopenTopic(id: string): BtwTopic | undefined {
   topic.status = "open";
   topic.closedAt = undefined;
   topic.updatedAt = Date.now();
-  currentTopicId = id;
+  store.currentTopicId = id;
   emitChange();
   return cloneTopic(topic);
 }

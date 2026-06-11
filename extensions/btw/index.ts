@@ -18,7 +18,7 @@ import {
   buildTopicContext,
   selectRecentMessages,
 } from "./prompts.ts";
-import { BTW_DISPLAY_TYPE, BTW_PROMOTED_TYPE } from "./types.ts";
+import { BTW_DISPLAY_TYPE, BTW_PROGRESS_TYPE, BTW_PROMOTED_TYPE } from "./types.ts";
 import {
   addTopicMessage,
   closeTopic,
@@ -31,6 +31,8 @@ import {
   resetBtwState,
   restoreBtwState,
   setCurrentTopicId,
+  startBtwAskProgress,
+  updateBtwAskProgress,
   updateTopicSummary,
   BTW_STATE_TYPE,
   type BtwMessage,
@@ -41,6 +43,7 @@ import {
 const MAX_TITLE_CHARS = 56;
 const MAX_DISPLAY_CONTENT_CHARS = 24_000;
 const INLINE_TOPIC_PATTERN = /^#([A-Za-z0-9_-]+)\s+([\s\S]+)$/;
+let nextProgressId = 1;
 
 interface AnchorInfo {
   entryId?: string;
@@ -293,6 +296,26 @@ function extractResponseText(response: any): string {
     .trim();
 }
 
+function createProgressId(topicId: string): string {
+  return `${topicId}-${Date.now().toString(36)}-${nextProgressId++}`;
+}
+
+function sendBtwProgress(pi: ExtensionAPI, topic: BtwTopic, progressId: string): void {
+  pi.sendMessage(
+    {
+      customType: BTW_PROGRESS_TYPE,
+      content: "",
+      display: true,
+      details: {
+        progressId,
+        topicId: topic.id,
+        title: topic.title,
+      },
+    },
+    { triggerTurn: false },
+  );
+}
+
 function sendBtwDisplay(pi: ExtensionAPI, topic: BtwTopic, content: string, kind: string, ctx?: ExtensionContext): void {
   const displayedContent = truncateText(content, MAX_DISPLAY_CONTENT_CHARS);
   if (ctx && !ctx.hasUI) {
@@ -331,7 +354,16 @@ async function askBtw(pi: ExtensionAPI, ctx: ExtensionCommandContext, topic: Btw
   persistState(pi);
 
   const updatedTopic = getTopic(topic.id) ?? topic;
-  notify(ctx, `BTW #${updatedTopic.id}: asking...`, "info");
+
+  const progressId = createProgressId(updatedTopic.id);
+  const startedAt = Date.now();
+  startBtwAskProgress({
+    progressId,
+    topicId: updatedTopic.id,
+    title: updatedTopic.title,
+    startedAt,
+  });
+  sendBtwProgress(pi, updatedTopic, progressId);
 
   let response: any;
   try {
@@ -347,17 +379,34 @@ async function askBtw(pi: ExtensionAPI, ctx: ExtensionCommandContext, topic: Btw
       },
     );
   } catch (error: any) {
+    updateBtwAskProgress(progressId, {
+      phase: "failed",
+      durationMs: Date.now() - startedAt,
+      error: error?.message ?? String(error),
+    });
+    persistState(pi);
     notify(ctx, `BTW request failed: ${error?.message ?? String(error)}`, "error");
     return;
   }
 
   if (response.stopReason === "aborted") {
+    updateBtwAskProgress(progressId, {
+      phase: "cancelled",
+      durationMs: Date.now() - startedAt,
+    });
+    persistState(pi);
     notify(ctx, "BTW cancelled", "info");
     return;
   }
 
   const answer = extractResponseText(response);
   if (!answer) {
+    updateBtwAskProgress(progressId, {
+      phase: "failed",
+      durationMs: Date.now() - startedAt,
+      error: "no answer",
+    });
+    persistState(pi);
     notify(ctx, "BTW produced no answer", "warning");
     return;
   }
@@ -368,6 +417,10 @@ async function askBtw(pi: ExtensionAPI, ctx: ExtensionCommandContext, topic: Btw
     timestamp: Date.now(),
   };
   const finalTopic = addTopicMessage(topic.id, assistantMessage) ?? updatedTopic;
+  updateBtwAskProgress(progressId, {
+    phase: "asked",
+    durationMs: Date.now() - startedAt,
+  });
   persistState(pi);
   sendBtwDisplay(pi, finalTopic, answer, "answer", ctx);
 }
@@ -530,7 +583,8 @@ export default function btwExtension(pi: ExtensionAPI): void {
   pi.on("context", async (event) => {
     let changed = false;
     const messages = event.messages.filter((message: any) => {
-      if (messageCustomType(message) !== BTW_DISPLAY_TYPE) return true;
+      const customType = messageCustomType(message);
+      if (customType !== BTW_DISPLAY_TYPE && customType !== BTW_PROGRESS_TYPE) return true;
       changed = true;
       return false;
     });

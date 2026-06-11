@@ -6,6 +6,7 @@
  */
 
 export const BTW_DISPLAY_TYPE = "btw-display";
+export const BTW_PROGRESS_TYPE = "btw-progress";
 export const BTW_PROMOTED_TYPE = "btw-promoted";
 
 export interface BtwDisplayDetails {
@@ -13,6 +14,12 @@ export interface BtwDisplayDetails {
   topicId: string;
   title: string;
   status?: string;
+}
+
+export interface BtwProgressDetails {
+  progressId: string;
+  topicId: string;
+  title: string;
 }
 
 export interface BtwPromotedDetails {
