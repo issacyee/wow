@@ -108,6 +108,22 @@ function markCompletedTodosFromMessages(messages: AgentMessage[]): number {
   return markCompletedTodosFromText(text);
 }
 
+function getLatestAssistantText(messages: AgentMessage[]): string {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const message = messages[i];
+    if (isAssistantMessage(message)) return getTextContent(message);
+  }
+  return "";
+}
+
+function looksLikeCompletedExecutionSummary(text: string): boolean {
+  if (!/(^|\n)\s*#{1,3}\s*(Execution Summary|执行总结|执行摘要|执行结果|实施总结|完成总结)\s*($|\n)/iu.test(text)) {
+    return false;
+  }
+
+  return !/\b(blocked|failed|failure|partial|partially|incomplete|unable to complete|could not complete|cannot complete|not completed|not complete|stopped|aborted|deferred|skipped)\b|阻塞|失败|未完成|没有完成|无法完成|不能完成|部分完成|只完成|跳过|停止|中止|待处理|剩余(?:步骤|任务|工作)?/iu.test(text);
+}
+
 function truncatePlanForRestore(text: string): string | undefined {
   if (!text) return undefined;
   if (text.length <= MAX_RESTORED_PLAN_CHARS) return text;
@@ -452,7 +468,7 @@ export default function humanLedCodingWorkflowExtension(pi: ExtensionAPI): void 
       markCompletedTodosFromMessages(event.messages);
       const todoItems = getTodoItems();
       const allExtractedStepsCompleted = todoItems.length === 0 || todoItems.every((item) => item.completed);
-      if (allExtractedStepsCompleted) {
+      if (allExtractedStepsCompleted || looksLikeCompletedExecutionSummary(getLatestAssistantText(event.messages))) {
         finishExecution();
       } else {
         continueExecution();

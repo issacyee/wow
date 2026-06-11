@@ -174,6 +174,7 @@ export function clearPlan(isExecuted = false): void {
 export function finishExecution(): void {
   store.activePlan = false;
   store.planFullText = "";
+  store.todoItems = store.todoItems.map((item) => ({ ...item, completed: true }));
   store.executionActive = false;
   store.executed = true;
   emitChange();
