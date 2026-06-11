@@ -39,6 +39,8 @@ type ThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh";
 type TransportSetting = "auto" | "sse" | "websocket" | "websocket-cached";
 type ResourceField = "extensions" | "skills" | "prompts" | "themes" | "packages";
 type ResourceAction = "add" | "remove" | "clear" | "list" | "back";
+type ModelAction = "set" | "unset" | "back";
+type ThinkingAction = "set" | "unset" | "back";
 type MainAction = "model" | "thinking" | "common" | "resources" | "reload" | "exit";
 
 interface SettingOption<T extends string = string> {
@@ -63,6 +65,8 @@ const DEFAULT_PROJECT_TRUST_VALUES = ["ask", "always", "never"] as const;
 const DOUBLE_ESCAPE_ACTIONS = ["tree", "fork", "none"] as const;
 const TREE_FILTER_MODES = ["default", "no-tools", "user-only", "labeled-only", "all"] as const;
 const RESOURCE_FIELDS: ResourceField[] = ["extensions", "skills", "prompts", "themes", "packages"];
+const UNSET_VALUE = "Unset / inherit";
+const UNSET_LABEL = UNSET_VALUE;
 const GLOBAL_WRITE_SETTLE_MS = 120;
 const GLOBAL_WRITE_TIMEOUT_MS = 1000;
 
@@ -106,20 +110,49 @@ function updateSettings(scope: ConfigScope, cwd: string, update: (settings: Json
   return settings;
 }
 
-function setPathValue(settings: JsonObject, path: string[], value: any): void {
+function isJsonObject(value: any): value is JsonObject {
+  return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
+function deletePathValue(settings: JsonObject, path: string[]): void {
+  if (path.length === 0) return;
+
+  const parents: Array<{ target: JsonObject; key: string }> = [];
   let target = settings;
   for (const key of path.slice(0, -1)) {
-    if (!target[key] || typeof target[key] !== "object" || Array.isArray(target[key])) {
+    const next = target[key];
+    if (!isJsonObject(next)) return;
+    parents.push({ target, key });
+    target = next;
+  }
+
+  delete target[path[path.length - 1]!];
+
+  for (let i = parents.length - 1; i >= 0; i--) {
+    const { target: parent, key } = parents[i]!;
+    const child = parent[key];
+    if (isJsonObject(child) && Object.keys(child).length === 0) {
+      delete parent[key];
+    } else {
+      break;
+    }
+  }
+}
+
+function setPathValue(settings: JsonObject, path: string[], value: any): void {
+  if (value === undefined) {
+    deletePathValue(settings, path);
+    return;
+  }
+
+  let target = settings;
+  for (const key of path.slice(0, -1)) {
+    if (!isJsonObject(target[key])) {
       target[key] = {};
     }
     target = target[key];
   }
-  const last = path[path.length - 1]!;
-  if (value === undefined) {
-    delete target[last];
-  } else {
-    target[last] = value;
-  }
+  target[path[path.length - 1]!] = value;
 }
 
 function setScopedValue(scope: ConfigScope, cwd: string, path: string[], value: any): void {
@@ -461,6 +494,49 @@ async function selectModel(ctx: ExtensionCommandContext): Promise<Model<any> | u
   return ctx.modelRegistry.find(provider, id);
 }
 
+function getScopedDefaultModel(scope: ConfigScope, cwd: string): { provider: string; id: string; label: string } | undefined {
+  const settings = readSettings(scope, cwd);
+  if (typeof settings.defaultProvider !== "string" || typeof settings.defaultModel !== "string") return undefined;
+  return {
+    provider: settings.defaultProvider,
+    id: settings.defaultModel,
+    label: `${settings.defaultProvider}/${settings.defaultModel}`,
+  };
+}
+
+function clearDefaultModel(scope: ConfigScope, cwd: string): void {
+  updateSettings(scope, cwd, (settings) => {
+    deletePathValue(settings, ["defaultProvider"]);
+    deletePathValue(settings, ["defaultModel"]);
+  });
+}
+
+function clearDefaultThinking(scope: ConfigScope, cwd: string): void {
+  setScopedValue(scope, cwd, ["defaultThinkingLevel"], undefined);
+}
+
+function notifyProjectModelOverrideForGlobal(scope: ConfigScope, ctx: ExtensionCommandContext): void {
+  if (scope !== "global" || !ctx.isProjectTrusted()) return;
+  try {
+    const projectModel = getScopedDefaultModel("project", ctx.cwd);
+    if (!projectModel) return;
+    notify(ctx, `Current project overrides the default model with ${projectModel.label}. Clear it in /config:project for global changes to apply after reload/restart.`, "warning");
+  } catch {
+    // Ignore unreadable project settings while configuring global scope.
+  }
+}
+
+function notifyProjectThinkingOverrideForGlobal(scope: ConfigScope, ctx: ExtensionCommandContext): void {
+  if (scope !== "global" || !ctx.isProjectTrusted()) return;
+  try {
+    const project = readSettings("project", ctx.cwd);
+    if (!THINKING_LEVELS.includes(project.defaultThinkingLevel)) return;
+    notify(ctx, `Current project overrides the default thinking level with ${project.defaultThinkingLevel}. Clear it in /config:project for global changes to apply after reload/restart.`, "warning");
+  } catch {
+    // Ignore unreadable project settings while configuring global scope.
+  }
+}
+
 async function applyModel(scope: ConfigScope, pi: ExtensionAPI, ctx: ExtensionCommandContext): Promise<void> {
   if (scope === "project" && !ensureProjectWritable(ctx)) return;
 
@@ -474,6 +550,7 @@ async function applyModel(scope: ConfigScope, pi: ExtensionAPI, ctx: ExtensionCo
       return;
     }
     notify(ctx, `Global default model set to ${modelLabel(model)}`, "info");
+    notifyProjectModelOverrideForGlobal(scope, ctx);
     return;
   }
 
@@ -494,6 +571,59 @@ async function applyModel(scope: ConfigScope, pi: ExtensionAPI, ctx: ExtensionCo
   notify(ctx, `Project default model set to ${modelLabel(model)} and applied now`, "info");
 }
 
+async function unsetModel(scope: ConfigScope, pi: ExtensionAPI, ctx: ExtensionCommandContext): Promise<void> {
+  if (scope === "project" && !ensureProjectWritable(ctx)) return;
+
+  const previous = getScopedDefaultModel(scope, ctx.cwd);
+  clearDefaultModel(scope, ctx.cwd);
+
+  if (scope === "project") {
+    const inherited = getScopedDefaultModel("global", ctx.cwd);
+    if (inherited) {
+      ctx.modelRegistry.refresh();
+      const model = ctx.modelRegistry.find(inherited.provider, inherited.id);
+      if (model) {
+        const ok = await pi.setModel(model);
+        if (ok) {
+          notify(ctx, `Project default model override cleared${previous ? ` (${previous.label})` : ""}; inherited global model ${inherited.label} applied now.`, "info");
+          return;
+        }
+        notify(ctx, `Project default model override cleared, but inherited global model ${inherited.label} could not be applied: missing auth.`, "warning");
+        return;
+      }
+      notify(ctx, `Project default model override cleared, but inherited global model ${inherited.label} is not available in the current registry.`, "warning");
+      return;
+    }
+
+    notify(ctx, `Project default model override cleared${previous ? ` (${previous.label})` : ""}. Reload or restart may be required to use pi's default model resolution.`, "info");
+    return;
+  }
+
+  notify(ctx, `Global default model cleared${previous ? ` (${previous.label})` : ""}. Reload or restart may be required to use pi's default model resolution.`, "info");
+  notifyProjectModelOverrideForGlobal(scope, ctx);
+}
+
+async function showModelSettings(scope: ConfigScope, pi: ExtensionAPI, ctx: ExtensionCommandContext): Promise<void> {
+  if (scope === "project" && !ensureProjectWritable(ctx)) return;
+
+  const current = getScopedDefaultModel(scope, ctx.cwd)?.label ?? "(unset)";
+  const selected = await selectOption<ModelAction>(ctx, `${settingLabel(scope)} Model`, [
+    { value: "set", label: "Set model", description: `Current ${scope} default model: ${current}` },
+    {
+      value: "unset",
+      label: scope === "project" ? "Unset project model override" : "Unset global default model",
+      description: scope === "project"
+        ? "Remove defaultProvider/defaultModel from project settings and inherit global."
+        : "Remove defaultProvider/defaultModel from global settings and use pi's default model resolution.",
+    },
+    { value: "back", label: "Back" },
+  ]);
+
+  if (!selected || selected === "back") return;
+  if (selected === "set") await applyModel(scope, pi, ctx);
+  if (selected === "unset") await unsetModel(scope, pi, ctx);
+}
+
 async function applyThinking(scope: ConfigScope, pi: ExtensionAPI, ctx: ExtensionCommandContext): Promise<void> {
   if (scope === "project" && !ensureProjectWritable(ctx)) return;
 
@@ -507,6 +637,7 @@ async function applyThinking(scope: ConfigScope, pi: ExtensionAPI, ctx: Extensio
   if (scope === "global") {
     pi.setThinkingLevel(level);
     notify(ctx, `Global default thinking level set to ${level}`, "info");
+    notifyProjectThinkingOverrideForGlobal(scope, ctx);
     return;
   }
 
@@ -525,6 +656,51 @@ async function applyThinking(scope: ConfigScope, pi: ExtensionAPI, ctx: Extensio
   notify(ctx, `Project default thinking level set to ${level} and applied now`, "info");
 }
 
+async function unsetThinking(scope: ConfigScope, pi: ExtensionAPI, ctx: ExtensionCommandContext): Promise<void> {
+  if (scope === "project" && !ensureProjectWritable(ctx)) return;
+
+  const settings = readSettings(scope, ctx.cwd);
+  const previous = THINKING_LEVELS.includes(settings.defaultThinkingLevel) ? settings.defaultThinkingLevel : undefined;
+  clearDefaultThinking(scope, ctx.cwd);
+
+  if (scope === "project") {
+    const global = readSettings("global", ctx.cwd);
+    if (THINKING_LEVELS.includes(global.defaultThinkingLevel)) {
+      pi.setThinkingLevel(global.defaultThinkingLevel);
+      notify(ctx, `Project default thinking override cleared${previous ? ` (${previous})` : ""}; inherited global thinking level ${global.defaultThinkingLevel} applied now.`, "info");
+      return;
+    }
+
+    notify(ctx, `Project default thinking override cleared${previous ? ` (${previous})` : ""}. Reload or restart may be required to use pi's default thinking resolution.`, "info");
+    return;
+  }
+
+  notify(ctx, `Global default thinking level cleared${previous ? ` (${previous})` : ""}. Reload or restart may be required to use pi's default thinking resolution.`, "info");
+  notifyProjectThinkingOverrideForGlobal(scope, ctx);
+}
+
+async function showThinkingSettings(scope: ConfigScope, pi: ExtensionAPI, ctx: ExtensionCommandContext): Promise<void> {
+  if (scope === "project" && !ensureProjectWritable(ctx)) return;
+
+  const settings = readSettings(scope, ctx.cwd);
+  const current = THINKING_LEVELS.includes(settings.defaultThinkingLevel) ? settings.defaultThinkingLevel : "(unset)";
+  const selected = await selectOption<ThinkingAction>(ctx, `${settingLabel(scope)} Thinking Level`, [
+    { value: "set", label: "Set thinking level", description: `Current ${scope} default thinking level: ${current}` },
+    {
+      value: "unset",
+      label: scope === "project" ? "Unset project thinking override" : "Unset global thinking default",
+      description: scope === "project"
+        ? "Remove defaultThinkingLevel from project settings and inherit global."
+        : "Remove defaultThinkingLevel from global settings and use pi's default thinking resolution.",
+    },
+    { value: "back", label: "Back" },
+  ]);
+
+  if (!selected || selected === "back") return;
+  if (selected === "set") await applyThinking(scope, pi, ctx);
+  if (selected === "unset") await unsetThinking(scope, pi, ctx);
+}
+
 // ── Common settings ─────────────────────────────────────────────────────
 
 function textValue(value: unknown, fallback = ""): string {
@@ -533,6 +709,10 @@ function textValue(value: unknown, fallback = ""): string {
 
 function numericValue(value: unknown, fallback: number): string {
   return typeof value === "number" && Number.isFinite(value) ? String(value) : String(fallback);
+}
+
+function withUnset(values: readonly string[]): string[] {
+  return [...values, UNSET_VALUE];
 }
 
 function commonItems(scope: ConfigScope, ctx: ExtensionCommandContext): SettingItem[] {
@@ -552,11 +732,18 @@ function commonItems(scope: ConfigScope, ctx: ExtensionCommandContext): SettingI
       description: "Theme name. Built-ins include dark and light; custom themes may also be available.",
       currentValue: stringifyValue(settings.theme ?? effectiveManager.getTheme()),
       submenu: (_current, done) => {
-        const themes = ctx.ui.getAllThemes().map((theme) => ({
-          value: theme.name,
-          label: theme.name,
-          description: theme.path ?? "built-in",
-        }));
+        const themes = [
+          {
+            value: UNSET_VALUE,
+            label: UNSET_LABEL,
+            description: scope === "project" ? "Remove project theme override and inherit global." : "Remove global theme override and use the built-in default.",
+          },
+          ...ctx.ui.getAllThemes().map((theme) => ({
+            value: theme.name,
+            label: theme.name,
+            description: theme.path ?? "built-in",
+          })),
+        ];
         return selectSubmenu("Select Theme", themes, done, ctx.ui.theme);
       },
     },
@@ -565,77 +752,77 @@ function commonItems(scope: ConfigScope, ctx: ExtensionCommandContext): SettingI
       label: "Transport",
       description: "Preferred provider transport.",
       currentValue: String(settings.transport ?? effectiveManager.getTransport()),
-      values: [...TRANSPORTS],
+      values: withUnset(TRANSPORTS),
     },
     {
       id: "steeringMode",
       label: "Steering mode",
       description: "How queued steering messages are delivered while the agent is streaming.",
       currentValue: String(settings.steeringMode ?? effectiveManager.getSteeringMode()),
-      values: [...QUEUE_MODES],
+      values: withUnset(QUEUE_MODES),
     },
     {
       id: "followUpMode",
       label: "Follow-up mode",
       description: "How queued follow-up messages are delivered after the agent stops.",
       currentValue: String(settings.followUpMode ?? effectiveManager.getFollowUpMode()),
-      values: [...QUEUE_MODES],
+      values: withUnset(QUEUE_MODES),
     },
     {
       id: "hideThinkingBlock",
       label: "Hide thinking",
       description: "Hide thinking blocks in assistant output.",
       currentValue: String(settings.hideThinkingBlock ?? effectiveManager.getHideThinkingBlock()),
-      values: ["true", "false"],
+      values: withUnset(["true", "false"]),
     },
     {
       id: "quietStartup",
       label: "Quiet startup",
       description: "Hide verbose startup resource listing.",
       currentValue: String(settings.quietStartup ?? effectiveManager.getQuietStartup()),
-      values: ["true", "false"],
+      values: withUnset(["true", "false"]),
     },
     {
       id: "collapseChangelog",
       label: "Collapse changelog",
       description: "Show condensed changelog after updates.",
       currentValue: String(settings.collapseChangelog ?? effectiveManager.getCollapseChangelog()),
-      values: ["true", "false"],
+      values: withUnset(["true", "false"]),
     },
     {
       id: "enableInstallTelemetry",
       label: "Install telemetry",
       description: "Send anonymous install/update telemetry. Global setting only.",
       currentValue: String(settings.enableInstallTelemetry ?? effectiveManager.getEnableInstallTelemetry()),
-      values: ["true", "false"],
+      values: withUnset(["true", "false"]),
     },
     {
       id: "defaultProjectTrust",
       label: "Default project trust",
       description: "Fallback trust behavior when no saved trust decision exists. Global setting only.",
       currentValue: String(settings.defaultProjectTrust ?? effectiveManager.getDefaultProjectTrust()),
-      values: [...DEFAULT_PROJECT_TRUST_VALUES],
+      values: withUnset(DEFAULT_PROJECT_TRUST_VALUES),
     },
     {
       id: "doubleEscapeAction",
       label: "Double escape",
       description: "Action for pressing Escape twice with empty editor.",
       currentValue: String(settings.doubleEscapeAction ?? effectiveManager.getDoubleEscapeAction()),
-      values: [...DOUBLE_ESCAPE_ACTIONS],
+      values: withUnset(DOUBLE_ESCAPE_ACTIONS),
     },
     {
       id: "treeFilterMode",
       label: "Tree filter",
       description: "Default filter mode for /tree.",
       currentValue: String(settings.treeFilterMode ?? effectiveManager.getTreeFilterMode()),
-      values: [...TREE_FILTER_MODES],
+      values: withUnset(TREE_FILTER_MODES),
     },
     {
       id: "compaction.enabled",
       label: "Auto compact",
       description: "Automatically compact context when it gets too large.",
       currentValue: String(settings.compaction?.enabled ?? compactionSettings.enabled),
-      values: ["true", "false"],
+      values: withUnset(["true", "false"]),
     },
     {
       id: "compaction.reserveTokens",
@@ -663,14 +850,14 @@ function commonItems(scope: ConfigScope, ctx: ExtensionCommandContext): SettingI
       label: "Branch skip prompt",
       description: "Skip summarize-branch prompt on tree navigation.",
       currentValue: String(settings.branchSummary?.skipPrompt ?? branchSummarySettings.skipPrompt),
-      values: ["true", "false"],
+      values: withUnset(["true", "false"]),
     },
     {
       id: "retry.enabled",
       label: "Retry enabled",
       description: "Enable automatic agent-level retry on transient errors.",
       currentValue: String(settings.retry?.enabled ?? retrySettings.enabled),
-      values: ["true", "false"],
+      values: withUnset(["true", "false"]),
     },
     {
       id: "retry.maxRetries",
@@ -726,77 +913,77 @@ function commonItems(scope: ConfigScope, ctx: ExtensionCommandContext): SettingI
       label: "Show images",
       description: "Render images inline when terminal supports it.",
       currentValue: String(settings.terminal?.showImages ?? effectiveManager.getShowImages()),
-      values: ["true", "false"],
+      values: withUnset(["true", "false"]),
     },
     {
       id: "terminal.imageWidthCells",
       label: "Image width",
       description: "Preferred inline image width in terminal cells.",
       currentValue: String(settings.terminal?.imageWidthCells ?? effectiveManager.getImageWidthCells()),
-      values: ["60", "80", "120"],
+      values: withUnset(["60", "80", "120"]),
     },
     {
       id: "terminal.clearOnShrink",
       label: "Clear on shrink",
       description: "Clear empty rows when rendered content shrinks.",
       currentValue: String(settings.terminal?.clearOnShrink ?? effectiveManager.getClearOnShrink()),
-      values: ["true", "false"],
+      values: withUnset(["true", "false"]),
     },
     {
       id: "terminal.showTerminalProgress",
       label: "Terminal progress",
       description: "Show OSC 9;4 progress indicators in terminal tab bar.",
       currentValue: String(settings.terminal?.showTerminalProgress ?? effectiveManager.getShowTerminalProgress()),
-      values: ["true", "false"],
+      values: withUnset(["true", "false"]),
     },
     {
       id: "images.autoResize",
       label: "Auto-resize images",
       description: "Resize large images before sending to providers.",
       currentValue: String(settings.images?.autoResize ?? effectiveManager.getImageAutoResize()),
-      values: ["true", "false"],
+      values: withUnset(["true", "false"]),
     },
     {
       id: "images.blockImages",
       label: "Block images",
       description: "Prevent images from being sent to providers.",
       currentValue: String(settings.images?.blockImages ?? effectiveManager.getBlockImages()),
-      values: ["true", "false"],
+      values: withUnset(["true", "false"]),
     },
     {
       id: "showHardwareCursor",
       label: "Hardware cursor",
       description: "Show terminal hardware cursor for IME positioning.",
       currentValue: String(settings.showHardwareCursor ?? effectiveManager.getShowHardwareCursor()),
-      values: ["true", "false"],
+      values: withUnset(["true", "false"]),
     },
     {
       id: "editorPaddingX",
       label: "Editor padding",
       description: "Horizontal editor padding, 0-3.",
       currentValue: numericValue(settings.editorPaddingX, effectiveManager.getEditorPaddingX()),
-      values: ["0", "1", "2", "3"],
+      values: withUnset(["0", "1", "2", "3"]),
     },
     {
       id: "autocompleteMaxVisible",
       label: "Autocomplete max",
       description: "Max visible autocomplete items, 3-20.",
       currentValue: numericValue(settings.autocompleteMaxVisible, effectiveManager.getAutocompleteMaxVisible()),
-      values: ["3", "5", "7", "10", "15", "20"],
+      values: withUnset(["3", "5", "7", "10", "15", "20"]),
     },
     {
       id: "enableSkillCommands",
       label: "Skill commands",
       description: "Register skills as /skill:name commands.",
       currentValue: String(settings.enableSkillCommands ?? effectiveManager.getEnableSkillCommands()),
-      values: ["true", "false"],
+      values: withUnset(["true", "false"]),
     },
     {
       id: "warnings.anthropicExtraUsage",
       label: "Anthropic warning",
       description: "Warn when Anthropic subscription auth may use paid extra usage.",
       currentValue: String(settings.warnings?.anthropicExtraUsage ?? effectiveManager.getWarnings().anthropicExtraUsage ?? true),
-      values: ["true", "false"],
+      values: withUnset(["true", "false"]),
     },
     {
       id: "shellPath",
@@ -896,6 +1083,8 @@ function parseOptionalString(value: string): string | undefined {
 }
 
 function parseCommonValue(id: string, value: string): any {
+  if (value === UNSET_VALUE) return undefined;
+
   switch (id) {
     case "hideThinkingBlock":
     case "quietStartup":
@@ -959,19 +1148,24 @@ async function showCommonSettings(scope: ConfigScope, ctx: ExtensionCommandConte
     setScopedValue(scope, ctx.cwd, path, parsed);
     list.updateValue(id, stringifyValue(parsed));
 
-    if (id === "theme") {
+    if (id === "theme" && parsed !== undefined) {
       const result = ctx.ui.setTheme(newValue);
       if (!result.success) notify(ctx, result.error ?? `Failed to apply theme ${newValue}`, "warning");
     }
-    if (id === "terminal.clearOnShrink") {
+    if (id === "theme" && parsed === undefined) {
+      notify(ctx, "Theme override cleared. Reload or restart may be required to apply the inherited theme.", "info");
+    }
+    if (id === "terminal.clearOnShrink" && parsed !== undefined) {
       notify(ctx, "clearOnShrink saved; it applies after reload or restart.", "info");
     }
-    if (id === "showHardwareCursor") {
+    if (id === "showHardwareCursor" && parsed !== undefined) {
       notify(ctx, "showHardwareCursor saved; it applies after reload or restart.", "info");
     }
 
     if (id !== "theme") {
-      notify(ctx, `${id} saved. Reload may be required for the current session to observe it.`, "info");
+      notify(ctx, parsed === undefined
+        ? `${id} override cleared. Reload may be required for the current session to observe it.`
+        : `${id} saved. Reload may be required for the current session to observe it.`, "info");
     }
 
   });
@@ -1020,7 +1214,7 @@ async function showResourceField(scope: ConfigScope, ctx: ExtensionCommandContex
     const selected = await selectOption<ResourceAction>(ctx, `${settingLabel(scope)} ${field}`, [
       { value: "add", label: "Add entry", description: resourceDescription(field) },
       { value: "remove", label: "Remove entry", description: entries.length > 0 ? `${entries.length} configured` : "No entries" },
-      { value: "clear", label: "Clear entries", description: "Remove this field from settings" },
+      { value: "clear", label: "Unset entries", description: "Remove this resource array from this scope's settings" },
       { value: "list", label: "List entries", description: entries.length > 0 ? entries.map(entryToLabel).join(" | ") : "No entries" },
       { value: "back", label: "Back" },
     ]);
@@ -1059,10 +1253,10 @@ async function showResourceField(scope: ConfigScope, ctx: ExtensionCommandContex
     }
 
     if (selected === "clear") {
-      const ok = await ctx.ui.confirm(`Clear ${field}?`, `Remove all ${field} entries from ${settingLabel(scope).toLowerCase()} settings?`);
+      const ok = await ctx.ui.confirm(`Unset ${field}?`, `Remove the ${field} array from ${settingLabel(scope).toLowerCase()} settings?`);
       if (!ok) continue;
       setResourceEntries(scope, ctx, field, []);
-      notify(ctx, `Cleared ${field}`, "info");
+      notify(ctx, `Unset ${field}`, "info");
       return await maybeReload(ctx);
     }
   }
@@ -1097,8 +1291,8 @@ async function showMainMenu(scope: ConfigScope, pi: ExtensionAPI, ctx: Extension
       ? `${settings.defaultProvider}/${settings.defaultModel}`
       : "(unset)";
     const selected = await selectOption<MainAction>(ctx, `${settingLabel(scope)} Config`, [
-      { value: "model", label: "Model", description: `Default model: ${currentModel}` },
-      { value: "thinking", label: "Thinking level", description: `Default thinking: ${settings.defaultThinkingLevel ?? "(unset)"}` },
+      { value: "model", label: "Model", description: `Default model: ${currentModel} · set or unset this scope` },
+      { value: "thinking", label: "Thinking level", description: `Default thinking: ${settings.defaultThinkingLevel ?? "(unset)"} · set or unset this scope` },
       { value: "common", label: "Common settings", description: "Theme, transport, queues, retry, compaction, terminal, editor, shell, resources" },
       { value: "resources", label: "Resource paths", description: "extensions, skills, prompts, themes, packages" },
       { value: "reload", label: "Reload", description: "Reload keybindings, extensions, skills, prompts, and themes" },
@@ -1109,10 +1303,10 @@ async function showMainMenu(scope: ConfigScope, pi: ExtensionAPI, ctx: Extension
 
     switch (selected) {
       case "model":
-        await applyModel(scope, pi, ctx);
+        await showModelSettings(scope, pi, ctx);
         break;
       case "thinking":
-        await applyThinking(scope, pi, ctx);
+        await showThinkingSettings(scope, pi, ctx);
         break;
       case "common":
         await showCommonSettings(scope, ctx);
