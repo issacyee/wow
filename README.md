@@ -48,14 +48,14 @@ A human-led coding workflow where the user decides when to discuss, plan, revise
 and execute. Normal prompts keep pi's default behavior; the workflow only activates
 when a prefix is used.
 
-| Input | Behavior |
-|-------|----------|
-| `? <text>` | Discuss/analyze only — read-only exploration, no plan required |
-| `?? <text>` | Write a new reviewable plan, replacing any active plan |
-| `??` | Write a plan from the most recent `?` discussion, if available |
-| `?! <text>` | Revise the current active plan from explicit review feedback |
-| `$` | Execute the current active plan |
-| `$ <text>` | Execute the current active plan with extra constraints |
+| Input       | Behavior                                                       |
+| ----------- | -------------------------------------------------------------- |
+| `? <text>`  | Discuss/analyze only — read-only exploration, no plan required |
+| `?? <text>` | Write a new reviewable plan, replacing any active plan         |
+| `??`        | Write a plan from the most recent `?` discussion, if available |
+| `?! <text>` | Revise the current active plan from explicit review feedback   |
+| `$`         | Execute the current active plan                                |
+| `$ <text>`  | Execute the current active plan with extra constraints         |
 
 - **Human-led control**: ordinary input remains free-form; plan feedback requires `?!`; execution requires `$`
 - **Read-only discussion/planning/revision**: these modes allow `read`, `grep`, `find`, `ls`, safe read-only `bash`, and `webfetch`, while blocking `edit`, `write`, and unsafe commands
@@ -94,16 +94,16 @@ entries outside provider context. Multiple `/btw` turns are linked by the curren
 BTW topic; separate topics remain isolated. Topic-id commands support argument
 completion, and when no id is provided in interactive mode they open a selector.
 
-| Command | Behavior |
-|---------|----------|
-| `/btw <question>` | Ask in the current open topic; if none exists, create/select one |
-| `/btw:new <question>` | Create a new topic and ask the first question |
-| `/btw:list` | List open topics (`--closed` / `--all` for archived topics) |
-| `/btw:switch <id>` | Switch the current topic |
-| `/btw:show [id]` | Show a topic transcript |
-| `/btw:close [id]` | Archive a topic without deleting it |
-| `/btw:reopen <id>` | Reopen an archived topic |
-| `/btw:promote [id]` | Explicitly promote a concise conclusion into the main context |
+| Command               | Behavior                                                         |
+| --------------------- | ---------------------------------------------------------------- |
+| `/btw <question>`     | Ask in the current open topic; if none exists, create/select one |
+| `/btw:new <question>` | Create a new topic and ask the first question                    |
+| `/btw:list`           | List open topics (`--closed` / `--all` for archived topics)      |
+| `/btw:switch <id>`    | Switch the current topic                                         |
+| `/btw:show <id>`      | Show a topic transcript                                          |
+| `/btw:close <id>`     | Archive a topic without deleting it                              |
+| `/btw:reopen <id>`    | Reopen an archived topic                                         |
+| `/btw:promote <id>`   | Explicitly promote a concise conclusion into the main context    |
 
 ### Command Mappings — Declarative Aliases
 
@@ -160,11 +160,11 @@ Built on Node.js native `fetch` — HTML conversion powered by node-html-markdow
 
 **Parameters:**
 
-| Parameter | Default | Description |
-|-----------|---------|-------------|
-| `url` | (required) | The URL to fetch content from |
-| `format` | `"markdown"` | Output format: `markdown`, `text`, or `html` |
-| `timeout` | 30 | Timeout in seconds (max 120) |
+| Parameter | Default      | Description                                  |
+| --------- | ------------ | -------------------------------------------- |
+| `url`     | (required)   | The URL to fetch content from                |
+| `format`  | `"markdown"` | Output format: `markdown`, `text`, or `html` |
+| `timeout` | 30           | Timeout in seconds (max 120)                 |
 
 ## Architecture
 
@@ -174,14 +174,14 @@ The package uses a centralized base extension (`wow`) that provides shared utili
 for all other extensions. It registers nothing at runtime and has no side effects —
 it serves purely as an import source for common functions.
 
-| Sub-module | Exports | Used by |
-|------------|---------|---------|
-| `locale.ts` | `detectLocale`, `detectPrimaryLocale`, `localeToDisplayName`, `buildLanguageInstruction`, `buildStableLanguagePolicy`, `LOCALE_MAP` | locale, local UI/template helpers |
-| `renderer.ts` | `createFocusRenderCall`, `focusRenderCall`, `focusRenderResult` | webfetch, custom tools |
-| `paths.ts` | `shortenPath`, `linkPath`, `shortenCommand` | wow-tui |
-| `html.ts` | `convertHTMLToMarkdown`, `extractTextFromHTML`, `stripTags`, `isRasterImage`, `STRIP_TAGS` | webfetch |
-| `shell.ts` | `execOrNull`, `execWithError` | git-commit |
-| `safe.ts` | `isSafeCommand` | human-led-coding-workflow |
+| Sub-module    | Exports                                                                                                                             | Used by                           |
+| ------------- | ----------------------------------------------------------------------------------------------------------------------------------- | --------------------------------- |
+| `locale.ts`   | `detectLocale`, `detectPrimaryLocale`, `localeToDisplayName`, `buildLanguageInstruction`, `buildStableLanguagePolicy`, `LOCALE_MAP` | locale, local UI/template helpers |
+| `renderer.ts` | `createFocusRenderCall`, `focusRenderCall`, `focusRenderResult`                                                                     | webfetch, custom tools            |
+| `paths.ts`    | `shortenPath`, `linkPath`, `shortenCommand`                                                                                         | wow-tui                           |
+| `html.ts`     | `convertHTMLToMarkdown`, `extractTextFromHTML`, `stripTags`, `isRasterImage`, `STRIP_TAGS`                                          | webfetch                          |
+| `shell.ts`    | `execOrNull`, `execWithError`                                                                                                       | git-commit                        |
+| `safe.ts`     | `isSafeCommand`                                                                                                                     | human-led-coding-workflow         |
 
 Each sub-module can be imported directly by relative path:
 
