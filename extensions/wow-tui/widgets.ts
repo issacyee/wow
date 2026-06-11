@@ -9,7 +9,9 @@ export function updateWorkflowWidgets(ctx: ExtensionContext): void {
   if (!ctx.hasUI) return;
 
   const snapshot = getWorkflowSnapshot();
-  const showExecutionTodos = snapshot.todoItems.length > 0 && (snapshot.executionActive || snapshot.turnMode === "execute");
+  const allTodosCompleted = snapshot.todoItems.length > 0 && snapshot.todoItems.every((item) => item.completed);
+  const showExecutionTodos = snapshot.todoItems.length > 0 &&
+    (snapshot.executionActive || snapshot.turnMode === "execute" || (snapshot.executed && allTodosCompleted));
 
   if (snapshot.turnMode === "discuss") {
     ctx.ui.setStatus(WORKFLOW_STATE_TYPE, ctx.ui.theme.fg("muted", "◇ discuss"));
@@ -19,7 +21,9 @@ export function updateWorkflowWidgets(ctx: ExtensionContext): void {
     ctx.ui.setStatus(WORKFLOW_STATE_TYPE, ctx.ui.theme.fg("warning", "◇ revise"));
   } else if (showExecutionTodos) {
     const completed = snapshot.todoItems.filter((item) => item.completed).length;
-    ctx.ui.setStatus(WORKFLOW_STATE_TYPE, ctx.ui.theme.fg("accent", `◇ exec ${completed}/${snapshot.todoItems.length}`));
+    const label = snapshot.executed && allTodosCompleted ? "done" : "exec";
+    const color = label === "done" ? "success" : "accent";
+    ctx.ui.setStatus(WORKFLOW_STATE_TYPE, ctx.ui.theme.fg(color, `◇ ${label} ${completed}/${snapshot.todoItems.length}`));
   } else if (snapshot.activePlan) {
     ctx.ui.setStatus(WORKFLOW_STATE_TYPE, ctx.ui.theme.fg("muted", "◇ plan ready"));
   } else {

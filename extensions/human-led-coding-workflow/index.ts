@@ -28,6 +28,7 @@ import {
   type WorkflowMode,
 } from "./prompts.ts";
 import {
+  extractDoneSteps,
   extractPlanItems,
   extractPlanText,
   hasExecuteMarker,
@@ -36,9 +37,12 @@ import {
   markCompletedSteps,
 } from "./plan.ts";
 import {
+  clearCompletedExecutionDisplay,
   clearPlan,
   clearTurnMode,
+  continueExecution,
   currentWorkflowState,
+  finishExecution,
   getPlanFullText,
   getTodoItems,
   getTurnMode,
@@ -47,8 +51,6 @@ import {
   replacePlan,
   resetWorkflowState,
   restoreWorkflowState,
-  setActivePlan,
-  setExecuted,
   setExecutionActive,
   setTurnMode,
   WORKFLOW_STATE_TYPE,
@@ -62,6 +64,7 @@ const READ_ONLY_ALLOWED_TOOLS = new Set(["read", "grep", "find", "ls", "bash", "
 
 let hasExecutionAdjustment = false;
 let planFromPreviousDiscussion = false;
+let executionProgressDirty = false;
 
 function persistState(pi: ExtensionAPI): void {
   pi.appendEntry(WORKFLOW_STATE_TYPE, currentWorkflowState());
@@ -76,6 +79,33 @@ function getTextContent(message: AssistantMessage): string {
     .filter((block): block is TextContent & { type: "text" } => block.type === "text")
     .map((block) => block.text)
     .join("\n");
+}
+
+function markCompletedTodosFromText(text: string): number {
+  if (!text.trim()) return 0;
+
+  const doneSteps = extractDoneSteps(text);
+  if (doneSteps.length === 0) return 0;
+
+  const todoItems = getTodoItems();
+  const hasNewCompletion = doneSteps.some((step) =>
+    todoItems.some((item) => item.step === step && !item.completed)
+  );
+  if (!hasNewCompletion) return 0;
+
+  let changed = 0;
+  mutateTodoItems((items) => {
+    changed = markCompletedSteps(text, items);
+  });
+  return changed;
+}
+
+function markCompletedTodosFromMessages(messages: AgentMessage[]): number {
+  const text = messages
+    .filter(isAssistantMessage)
+    .map(getTextContent)
+    .join("\n");
+  return markCompletedTodosFromText(text);
 }
 
 function truncatePlanForRestore(text: string): string | undefined {
@@ -235,6 +265,7 @@ export default function humanLedCodingWorkflowExtension(pi: ExtensionAPI): void 
     const parsed = parseWorkflowInput(event.text);
     if (!parsed) {
       if (typeof ctx.isIdle !== "function" || ctx.isIdle()) {
+        if (clearCompletedExecutionDisplay()) persistState(pi);
         clearTurnMode();
       }
       return { action: "continue" };
@@ -249,6 +280,8 @@ export default function humanLedCodingWorkflowExtension(pi: ExtensionAPI): void 
 
     if (parsed.mode === "plan") {
       clearPlan(false);
+      persistState(pi);
+    } else if (clearCompletedExecutionDisplay()) {
       persistState(pi);
     }
 
@@ -271,6 +304,7 @@ export default function humanLedCodingWorkflowExtension(pi: ExtensionAPI): void 
       hasExecutionAdjustment = parsed.prompt.length > 0;
     }
 
+    executionProgressDirty = false;
     setTurnMode(parsed.mode);
     return { action: "transform", text: parsed.prompt };
   });
@@ -379,18 +413,24 @@ export default function humanLedCodingWorkflowExtension(pi: ExtensionAPI): void 
     }
   });
 
-  // turn_end — track [DONE:n] progress during execution.
-  pi.on("turn_end", async (event) => {
-    if (getTurnMode() !== "execute" || getTodoItems().length === 0) return;
-    if (!isAssistantMessage(event.message)) return;
+  // message_update — update todo progress as soon as visible [DONE:n] text streams in.
+  pi.on("message_update", async (event) => {
+    if (getTurnMode() !== "execute" || !isAssistantMessage(event.message)) return;
 
-    const text = getTextContent(event.message);
-    let changed = 0;
-    mutateTodoItems((items) => {
-      changed = markCompletedSteps(text, items);
-    });
+    const changed = markCompletedTodosFromText(getTextContent(event.message));
     if (changed > 0) {
+      executionProgressDirty = true;
+    }
+  });
+
+  // turn_end — track [DONE:n] progress during execution and persist streaming updates.
+  pi.on("turn_end", async (event) => {
+    if (getTurnMode() !== "execute" || !isAssistantMessage(event.message)) return;
+
+    const changed = markCompletedTodosFromText(getTextContent(event.message));
+    if (changed > 0 || executionProgressDirty) {
       persistState(pi);
+      executionProgressDirty = false;
     }
   });
 
@@ -409,16 +449,16 @@ export default function humanLedCodingWorkflowExtension(pi: ExtensionAPI): void 
     }
 
     if (turnMode === "execute") {
-      setExecuted(true);
+      markCompletedTodosFromMessages(event.messages);
       const todoItems = getTodoItems();
       const allExtractedStepsCompleted = todoItems.length === 0 || todoItems.every((item) => item.completed);
       if (allExtractedStepsCompleted) {
-        clearPlan(true);
+        finishExecution();
       } else {
-        setActivePlan(true);
-        setExecutionActive(true);
+        continueExecution();
       }
       persistState(pi);
+      executionProgressDirty = false;
     }
 
     clearTurnMode();
@@ -440,5 +480,6 @@ export default function humanLedCodingWorkflowExtension(pi: ExtensionAPI): void 
     clearTurnMode();
     hasExecutionAdjustment = false;
     planFromPreviousDiscussion = false;
+    executionProgressDirty = false;
   });
 }

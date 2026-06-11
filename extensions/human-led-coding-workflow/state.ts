@@ -171,6 +171,31 @@ export function clearPlan(isExecuted = false): void {
   emitChange();
 }
 
+export function finishExecution(): void {
+  store.activePlan = false;
+  store.planFullText = "";
+  store.executionActive = false;
+  store.executed = true;
+  emitChange();
+}
+
+export function continueExecution(): void {
+  store.activePlan = true;
+  store.executionActive = true;
+  store.executed = true;
+  emitChange();
+}
+
+export function clearCompletedExecutionDisplay(): boolean {
+  if (store.activePlan || store.executionActive || !store.executed || store.todoItems.length === 0) return false;
+
+  store.planFullText = "";
+  store.todoItems = [];
+  store.executed = false;
+  emitChange();
+  return true;
+}
+
 export function setActivePlan(value: boolean): void {
   store.activePlan = value;
   if (!value) store.executionActive = false;

@@ -70,12 +70,13 @@ function extractNumberedList(section: string): TodoItem[] {
   const numberedPattern = /^\s*(\d+)[.)]\s+(.+)$/gm;
 
   for (const match of section.matchAll(numberedPattern)) {
+    const step = Number(match[1]);
     const text = match[2].trim();
-    if (text.length <= 2 || text.startsWith("/")) continue;
+    if (!Number.isFinite(step) || step <= 0 || text.length <= 2 || text.startsWith("/")) continue;
 
     const cleaned = cleanStepText(text);
     if (cleaned.length > 2) {
-      items.push({ step: items.length + 1, text: cleaned, completed: false });
+      items.push({ step, text: cleaned, completed: false });
     }
   }
 
@@ -95,7 +96,7 @@ export function extractPlanItems(text: string): TodoItem[] {
 
 export function extractDoneSteps(text: string): number[] {
   const steps: number[] = [];
-  for (const match of text.matchAll(/\[DONE:(\d+)\]/gi)) {
+  for (const match of text.matchAll(/\\?\[\s*DONE\s*[:：]\s*(\d+)\s*\\?\]/gi)) {
     const step = Number(match[1]);
     if (Number.isFinite(step)) steps.push(step);
   }

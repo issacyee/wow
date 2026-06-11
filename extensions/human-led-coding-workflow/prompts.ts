@@ -120,7 +120,8 @@ Rules:
 - Full tool access is allowed in this mode.
 - Follow the active plan and incorporate any extra constraints in the user's current message.
 - Do not commit changes. The human commits manually.
-- After completing an implementation step, include [DONE:n] where n is the step number.
+- After completing an implementation step, immediately output a visible progress line containing [DONE:n] where n is the step number, then continue with later steps.
+- Do not wait until the final summary to report completed steps; emit each [DONE:n] as soon as that step is complete.
 - When the whole plan is complete, all extracted step numbers must be marked with [DONE:n].
 - If the plan is no longer valid, stop and explain instead of improvising a major redesign.
 
