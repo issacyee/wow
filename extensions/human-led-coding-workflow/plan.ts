@@ -59,9 +59,6 @@ export function cleanStepText(text: string): string {
   if (cleaned.length > 0) {
     cleaned = cleaned.charAt(0).toUpperCase() + cleaned.slice(1);
   }
-  if (cleaned.length > 100) {
-    cleaned = cleaned.slice(0, 97) + "...";
-  }
   return cleaned;
 }
 

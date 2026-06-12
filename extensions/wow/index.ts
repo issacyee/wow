@@ -30,10 +30,16 @@ export {
 } from "./locale.ts";
 
 export {
+  AdaptiveLine,
+  AdaptiveLines,
   AdaptiveToolLine,
   createFocusRenderCall,
   focusRenderCall,
   focusRenderResult,
+  type AdaptiveLineBuilder,
+  type AdaptiveLineStyler,
+  type AdaptiveLinesBuilder,
+  type AdaptiveLinesOptions,
 } from "./renderer.ts";
 
 export {

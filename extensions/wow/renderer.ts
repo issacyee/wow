@@ -12,17 +12,27 @@
  *   renderResult: focusRenderResult,
  */
 
-import { Container, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import { Container, truncateToWidth, visibleWidth, type Component } from "@earendil-works/pi-tui";
 import { fitEnd, linkUrlAdaptive } from "./paths.ts";
 
 const DEFAULT_PADDING_X = 1;
 
-/** Single-line component that fits content at render-time using the current TUI width. */
-export class AdaptiveToolLine {
+export type AdaptiveLineBuilder = (availableWidth: number) => string;
+export type AdaptiveLinesBuilder = (availableWidth: number) => string[];
+export type AdaptiveLineStyler = (text: string, index: number) => string;
+
+export interface AdaptiveLinesOptions {
+  paddingX?: number;
+  normalizeWhitespace?: boolean;
+  truncate?: boolean;
+  style?: AdaptiveLineStyler;
+}
+
+/** Multi-line component that fits content at render-time using the current TUI width. */
+export class AdaptiveLines implements Component {
   constructor(
-    private readonly buildLine: (availableWidth: number) => string,
-    private readonly style: (text: string) => string = (text) => text,
-    private readonly paddingX = DEFAULT_PADDING_X,
+    private readonly buildLines: AdaptiveLinesBuilder,
+    private readonly options: AdaptiveLinesOptions = {},
   ) {}
 
   invalidate(): void {
@@ -32,17 +42,45 @@ export class AdaptiveToolLine {
   render(width: number): string[] {
     if (width <= 0) return [""];
 
-    const paddingX = width >= this.paddingX * 2 + 1 ? this.paddingX : 0;
+    const requestedPaddingX = this.options.paddingX ?? DEFAULT_PADDING_X;
+    const paddingX = width >= requestedPaddingX * 2 + 1 ? requestedPaddingX : 0;
     const availableWidth = Math.max(1, width - paddingX * 2);
-    const rawLine = this.buildLine(availableWidth).replace(/\s*\n\s*/g, " ");
-    const fittedLine = truncateToWidth(rawLine, availableWidth);
-    const styledLine = this.style(fittedLine);
+    const lines = this.buildLines(availableWidth);
+
+    return lines.map((line, index) => this.renderLine(line, index, width, availableWidth, paddingX));
+  }
+
+  private renderLine(line: string, index: number, width: number, availableWidth: number, paddingX: number): string {
+    const normalizedLine = this.options.normalizeWhitespace === false
+      ? line
+      : line.replace(/\s*\n\s*/g, " ");
+    const fittedLine = this.options.truncate === false
+      ? normalizedLine
+      : truncateToWidth(normalizedLine, availableWidth);
+    const styledLine = this.options.style ? this.options.style(fittedLine, index) : fittedLine;
     const paddedLine = `${" ".repeat(paddingX)}${styledLine}${" ".repeat(paddingX)}`;
     const padding = " ".repeat(Math.max(0, width - visibleWidth(paddedLine)));
 
-    return [paddedLine + padding];
+    return paddedLine + padding;
   }
 }
+
+/** Single-line component that fits content at render-time using the current TUI width. */
+export class AdaptiveLine extends AdaptiveLines {
+  constructor(
+    buildLine: AdaptiveLineBuilder,
+    style: (text: string) => string = (text) => text,
+    paddingX = DEFAULT_PADDING_X,
+  ) {
+    super((availableWidth) => [buildLine(availableWidth)], {
+      paddingX,
+      style: (text) => style(text),
+    });
+  }
+}
+
+/** Backward-compatible focus-style tool line component. */
+export class AdaptiveToolLine extends AdaptiveLine {}
 
 function displayValue(value: any): string {
   if (typeof value === "string") return value;
