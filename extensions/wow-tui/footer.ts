@@ -9,20 +9,26 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 import { hyperlink, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { shortenPath } from "../wow/paths.ts";
 import { collectCacheStats } from "../prefix-cache/stats.ts";
-import { BLUE, DIM, GREEN, PURPLE, RED, YELLOW } from "./palette.ts";
+import { wowColor } from "./theme.ts";
 
 const BAR_WIDTH = 10;
 const FILLED = "█";
 const EMPTY = "░";
 
-function renderContextBar(percent: number | null): string {
+function contextColorToken(percent: number | null): "footer.contextOk" | "footer.contextWarn" | "footer.contextDanger" {
+  const pct = Math.max(0, Math.min(100, percent ?? 0));
+  if (pct > 80) return "footer.contextDanger";
+  if (pct > 50) return "footer.contextWarn";
+  return "footer.contextOk";
+}
+
+function renderContextBar(theme: any, percent: number | null): string {
   const pct = Math.max(0, Math.min(100, percent ?? 0));
   const filled = Math.round((pct / 100) * BAR_WIDTH);
   const empty = BAR_WIDTH - filled;
   const bar = FILLED.repeat(filled) + EMPTY.repeat(empty);
 
-  const color = pct > 80 ? RED : pct > 50 ? YELLOW : GREEN;
-  return color(bar);
+  return wowColor(theme, contextColorToken(percent))(bar);
 }
 
 function fmt(n: number): string {
@@ -35,17 +41,16 @@ function fmtContextWindow(n: number): string {
   return `${n}`;
 }
 
-function renderContextPercent(percent: number | null, contextWindow?: number): string {
+function renderContextPercent(theme: any, percent: number | null, contextWindow?: number): string {
   const pct = Math.round(Math.max(0, Math.min(100, percent ?? 0)));
-  const color = pct > 80 ? RED : pct > 50 ? YELLOW : GREEN;
   const windowLabel = contextWindow ? `/${fmtContextWindow(contextWindow)}` : "";
-  return color(` ${pct}%${windowLabel}`);
+  return wowColor(theme, contextColorToken(percent))(` ${pct}%${windowLabel}`);
 }
 
 export function installFooter(pi: ExtensionAPI, ctx: ExtensionContext): void {
   if (!ctx.hasUI) return;
 
-  ctx.ui.setFooter((tui, _theme, footerData) => {
+  ctx.ui.setFooter((tui, theme, footerData) => {
     const unsubBranch = footerData.onBranchChange(() => tui.requestRender());
 
     return {
@@ -54,16 +59,16 @@ export function installFooter(pi: ExtensionAPI, ctx: ExtensionContext): void {
       render(width: number): string[] {
         const cwdPath = ctx.cwd ?? process.cwd();
         const cwdName = shortenPath(cwdPath);
-        const cwdDisplay = YELLOW(hyperlink(cwdName, `file://${cwdPath}`));
+        const cwdDisplay = wowColor(theme, "footer.cwd")(hyperlink(cwdName, `file://${cwdPath}`));
 
         const branch = footerData.getGitBranch();
-        const branchDisplay = branch ? ` ${PURPLE(branch)}` : "";
+        const branchDisplay = branch ? ` ${wowColor(theme, "footer.branch")(branch)}` : "";
 
         const modelName = ctx.model?.id || "no-model";
         const thinkingLevel = pi.getThinkingLevel();
         const modelDisplay = thinkingLevel && thinkingLevel !== "off"
-          ? GREEN(`${modelName} • ${thinkingLevel}`)
-          : GREEN(modelName);
+          ? wowColor(theme, "footer.model")(`${modelName} • ${thinkingLevel}`)
+          : wowColor(theme, "footer.model")(modelName);
 
         const line1Left = cwdDisplay + branchDisplay;
         const line1Right = modelDisplay;
@@ -76,23 +81,23 @@ export function installFooter(pi: ExtensionAPI, ctx: ExtensionContext): void {
         const line1 = truncateToWidth(line1LeftTrunc + line1Pad + line1Right, width);
 
         const usage = ctx.getContextUsage();
-        const barDisplay = renderContextBar(usage?.percent ?? null);
+        const barDisplay = renderContextBar(theme, usage?.percent ?? null);
         const contextWindow = usage?.contextWindow ?? ctx.model?.contextWindow;
-        const pctDisplay = renderContextPercent(usage?.percent ?? null, contextWindow);
+        const pctDisplay = renderContextPercent(theme, usage?.percent ?? null, contextWindow);
 
         const cacheStats = collectCacheStats(ctx.sessionManager.getBranch());
-        const tokenDisplay = BLUE(` ↑${fmt(cacheStats.input)} ↓${fmt(cacheStats.output)}`);
+        const tokenDisplay = wowColor(theme, "footer.tokens")(` ↑${fmt(cacheStats.input)} ↓${fmt(cacheStats.output)}`);
         const cacheDisplay = cacheStats.hitRate === null
           ? ""
-          : GREEN(` ⚡${Math.round(cacheStats.hitRate * 100)}%`);
-        const costDisplay = YELLOW(` $${cacheStats.cost.toFixed(3)}`);
+          : wowColor(theme, "footer.cache")(` ⚡${Math.round(cacheStats.hitRate * 100)}%`);
+        const costDisplay = wowColor(theme, "footer.cost")(` $${cacheStats.cost.toFixed(3)}`);
 
         const statuses = footerData.getExtensionStatuses();
         const statusTexts: string[] = [];
         for (const [, text] of statuses) {
           statusTexts.push(text);
         }
-        const statusDisplay = statusTexts.length > 0 ? DIM(statusTexts.join(" ")) : "";
+        const statusDisplay = statusTexts.length > 0 ? wowColor(theme, "footer.status")(statusTexts.join(" ")) : "";
 
         const line2Left = barDisplay + pctDisplay + tokenDisplay + cacheDisplay + costDisplay;
         const line2Right = statusDisplay;

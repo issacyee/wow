@@ -57,7 +57,7 @@ export default function wowTuiExtension(pi: ExtensionAPI): void {
 
     if (WOW_TUI_CONFIG.editor) {
       ctx.ui.setEditorComponent((tui: any, theme: any, keybindings: any) =>
-        createEditorComponent(tui, theme, keybindings)
+        createEditorComponent(tui, theme, keybindings, ctx.ui.theme)
       );
     }
 

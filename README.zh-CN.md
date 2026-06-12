@@ -104,6 +104,34 @@ BTW 使用独立 LLM 调用，并把 topic state 作为 custom entries 持久化
 
 自定义工具可以复用 `wow/renderer.ts` 中的共享 dim rendering 工具（`createFocusRenderCall`、`focusRenderResult`）。
 
+#### Wow Theme Variables
+
+Wow 专属颜色通过 pi theme 的可选 `vars` 条目定义，不会写入 pi 封闭的
+`colors` schema，因此 theme 文件仍然是合法的 pi theme。未定义或无效的值会回退到 Wow 内置 palette。
+
+```json
+{
+  "vars": {
+    "wow.workflow.discussBorder": "#7a5ea0",
+    "wow.workflow.planBorder": "#f5a742",
+    "wow.workflow.reviseBorder": "#c9a84c",
+    "wow.workflow.executeBorder": "#5c9cf5",
+    "wow.footer.cwd": "#c9a84c",
+    "wow.footer.branch": "#7a5ea0",
+    "wow.footer.model": "#1faf7a",
+    "wow.footer.tokens": "#17dae7",
+    "wow.footer.cache": "#1faf7a",
+    "wow.footer.cost": "#c9a84c",
+    "wow.footer.status": "#666666",
+    "wow.footer.contextOk": "#1faf7a",
+    "wow.footer.contextWarn": "#c9a84c",
+    "wow.footer.contextDanger": "#e8634f"
+  }
+}
+```
+
+取值格式与 pi theme vars 相同：`"#RRGGBB"`、`0`-`255`、`""` 或另一个 var 名称。
+
 ### Prefix Cache — Reasonix-Style Prompt Stability
 
 优化 provider prefix-cache 命中率，尤其适用于 DeepSeek/OpenAI-compatible reasoning models：

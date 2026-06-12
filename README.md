@@ -129,6 +129,36 @@ It owns package-level singleton TUI resources:
 Custom tools can reuse the same dim rendering via shared utilities from `wow/renderer.ts`
 (`createFocusRenderCall`, `focusRenderResult`).
 
+#### Wow Theme Variables
+
+Wow-specific colors are optional pi theme `vars` entries. They are not added to
+pi's closed `colors` schema, so theme files remain valid pi themes. Undefined or
+invalid values fall back to Wow's built-in palette.
+
+```json
+{
+  "vars": {
+    "wow.workflow.discussBorder": "#7a5ea0",
+    "wow.workflow.planBorder": "#f5a742",
+    "wow.workflow.reviseBorder": "#c9a84c",
+    "wow.workflow.executeBorder": "#5c9cf5",
+    "wow.footer.cwd": "#c9a84c",
+    "wow.footer.branch": "#7a5ea0",
+    "wow.footer.model": "#1faf7a",
+    "wow.footer.tokens": "#17dae7",
+    "wow.footer.cache": "#1faf7a",
+    "wow.footer.cost": "#c9a84c",
+    "wow.footer.status": "#666666",
+    "wow.footer.contextOk": "#1faf7a",
+    "wow.footer.contextWarn": "#c9a84c",
+    "wow.footer.contextDanger": "#e8634f"
+  }
+}
+```
+
+Values use the same formats as pi theme vars: `"#RRGGBB"`, `0`-`255`, `""`, or
+another var name.
+
 ### Prefix Cache — Reasonix-Style Prompt Stability
 
 Optimizes provider prefix-cache hit rate, especially for DeepSeek/OpenAI-compatible

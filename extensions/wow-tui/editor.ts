@@ -7,7 +7,8 @@
 
 import { CustomEditor } from "@earendil-works/pi-coding-agent";
 import { visibleWidth } from "@earendil-works/pi-tui";
-import { EXECUTE_BLUE, ORANGE, PURPLE, YELLOW, type ColorFn } from "./palette.ts";
+import type { ColorFn } from "./palette.ts";
+import { wowColor } from "./theme.ts";
 
 const PI_LABEL = "π";
 
@@ -17,18 +18,18 @@ function stripInvisible(str: string): string {
     .replace(/\x1b_P[^\x1b]*\x1b\\/g, "");
 }
 
-function workflowBorderColor(text: string): ColorFn | null {
+function workflowBorderColor(text: string, theme: any): ColorFn | null {
   if (text.startsWith("?!") || text.startsWith("?！") || text.startsWith("？！") || text.startsWith("？!")) {
-    return YELLOW;
+    return wowColor(theme, "workflow.reviseBorder");
   }
   if (text.startsWith("??") || text.startsWith("?？") || text.startsWith("？？") || text.startsWith("？?")) {
-    return ORANGE;
+    return wowColor(theme, "workflow.planBorder");
   }
   if (text.startsWith("?") || text.startsWith("？")) {
-    return PURPLE;
+    return wowColor(theme, "workflow.discussBorder");
   }
   if (text.startsWith("$") || text.startsWith("￥")) {
-    return EXECUTE_BLUE;
+    return wowColor(theme, "workflow.executeBorder");
   }
   return null;
 }
@@ -37,7 +38,7 @@ export class WowCompositeEditor extends CustomEditor {
   private _storedBorderColor!: ColorFn;
   private _modeBorderColor: ColorFn | null = null;
 
-  constructor(tui: any, theme: any, keybindings: any) {
+  constructor(tui: any, theme: any, keybindings: any, private readonly wowTheme: any) {
     super(tui, theme, keybindings);
     this._storedBorderColor = theme.borderColor;
 
@@ -81,7 +82,7 @@ export class WowCompositeEditor extends CustomEditor {
 
   render(width: number): string[] {
     const text = this.getText();
-    this._modeBorderColor = workflowBorderColor(text);
+    this._modeBorderColor = workflowBorderColor(text, this.wowTheme);
 
     const lines = super.render(width);
     if (lines.length === 0) return lines;
@@ -99,6 +100,6 @@ export class WowCompositeEditor extends CustomEditor {
   }
 }
 
-export function createEditorComponent(tui: any, theme: any, keybindings: any): WowCompositeEditor {
-  return new WowCompositeEditor(tui, theme, keybindings);
+export function createEditorComponent(tui: any, theme: any, keybindings: any, wowTheme: any): WowCompositeEditor {
+  return new WowCompositeEditor(tui, theme, keybindings, wowTheme);
 }
