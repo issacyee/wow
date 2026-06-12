@@ -4,7 +4,7 @@
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import type { Model } from "@earendil-works/pi-ai";
+import { modelsAreEqual, type Model } from "@earendil-works/pi-ai";
 import type {
   ExtensionAPI,
   ExtensionCommandContext,
@@ -20,6 +20,7 @@ import {
   type Focusable,
   fuzzyFilter,
   Input,
+  getKeybindings,
   Key,
   matchesKey,
   type SelectItem,
@@ -38,10 +39,8 @@ type JsonObject = Record<string, any>;
 type ThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh";
 type TransportSetting = "auto" | "sse" | "websocket" | "websocket-cached";
 type ResourceField = "extensions" | "skills" | "prompts" | "themes" | "packages";
-type ResourceAction = "add" | "remove" | "clear" | "list" | "back";
-type ModelAction = "set" | "unset" | "back";
-type ThinkingAction = "set" | "unset" | "back";
-type MainAction = "model" | "thinking" | "common" | "resources" | "reload" | "exit";
+type ResourceAction = "add" | "remove" | "clear" | "list";
+type MainAction = "model" | "thinking" | "common" | "resources" | "reload";
 
 interface SettingOption<T extends string = string> {
   value: T;
@@ -65,8 +64,6 @@ const DEFAULT_PROJECT_TRUST_VALUES = ["ask", "always", "never"] as const;
 const DOUBLE_ESCAPE_ACTIONS = ["tree", "fork", "none"] as const;
 const TREE_FILTER_MODES = ["default", "no-tools", "user-only", "labeled-only", "all"] as const;
 const RESOURCE_FIELDS: ResourceField[] = ["extensions", "skills", "prompts", "themes", "packages"];
-const UNSET_VALUE = "Unset / inherit";
-const UNSET_LABEL = UNSET_VALUE;
 const GLOBAL_WRITE_SETTLE_MS = 120;
 const GLOBAL_WRITE_TIMEOUT_MS = 1000;
 
@@ -225,6 +222,28 @@ function settingLabel(scope: ConfigScope): string {
   return scope === "global" ? "Global" : "Project";
 }
 
+function scopeLabel(scope: ConfigScope): string {
+  return scope === "global" ? "global" : "project";
+}
+
+function hasOwnPath(settings: JsonObject, path: string[]): boolean {
+  let target: any = settings;
+  for (const key of path.slice(0, -1)) {
+    if (!isJsonObject(target)) return false;
+    target = target[key];
+  }
+  return isJsonObject(target) && Object.prototype.hasOwnProperty.call(target, path[path.length - 1]!);
+}
+
+function getPathValue(settings: JsonObject, path: string[]): any {
+  let target: any = settings;
+  for (const key of path) {
+    if (!isJsonObject(target) && typeof target !== "object") return undefined;
+    target = target?.[key];
+  }
+  return target;
+}
+
 function notify(ctx: ExtensionCommandContext, message: string, type: "info" | "warning" | "error" = "info"): void {
   if (ctx.hasUI) ctx.ui.notify(message, type);
   else console.log(message);
@@ -242,6 +261,24 @@ function ensureProjectWritable(ctx: ExtensionCommandContext): boolean {
 
 function currentScopedSettings(scope: ConfigScope, ctx: ExtensionCommandContext): JsonObject {
   return readSettings(scope, ctx.cwd);
+}
+
+function scopedCurrentValue(
+  scope: ConfigScope,
+  cwd: string,
+  path: string[],
+  effectiveValue: any,
+): string {
+  const scoped = readSettings(scope, cwd);
+  const scopedValue = getPathValue(scoped, path);
+  if (hasOwnPath(scoped, path)) return stringifyValue(scopedValue);
+
+  if (scope === "project") {
+    const global = readSettings("global", cwd);
+    if (hasOwnPath(global, path)) return `↳ ${stringifyValue(getPathValue(global, path))} (inherited)`;
+  }
+
+  return `↳ ${stringifyValue(effectiveValue)} (built-in)`;
 }
 
 // ── Reusable UI components ───────────────────────────────────────────────
@@ -297,7 +334,7 @@ class SearchableSelect implements Component {
     this.container.addChild(new Spacer(1));
     this.container.addChild(this.list);
     this.container.addChild(new Spacer(1));
-    this.container.addChild(new Text(this.theme.fg("dim", "Type to filter • Backspace delete • Enter select • Esc cancel"), 1, 0));
+    this.container.addChild(new Text(this.theme.fg("dim", "Type to filter • Backspace delete • Enter select • Esc back"), 1, 0));
     this.container.addChild(new DynamicBorder((s: string) => this.theme.fg("accent", s)));
   }
 
@@ -425,11 +462,18 @@ async function selectOption<T extends string>(
   return selected as T | undefined;
 }
 
+function selectedSettingsItem(list: SettingsList): SettingItem | undefined {
+  const state = list as any;
+  const items = state.searchEnabled ? state.filteredItems : state.items;
+  return Array.isArray(items) ? items[state.selectedIndex] : undefined;
+}
+
 async function showSettingsScreen(
   ctx: ExtensionCommandContext,
   title: string,
   items: SettingItem[],
   onChange: (id: string, newValue: string, list: SettingsList) => void | Promise<void>,
+  onUnset: (id: string, list: SettingsList) => void | Promise<void>,
 ): Promise<void> {
   if (ctx.mode !== "tui") {
     notify(ctx, `${title} requires TUI mode`, "error");
@@ -442,10 +486,15 @@ async function showSettingsScreen(
     container.addChild(new Text(theme.fg("accent", theme.bold(title)), 1, 0));
     container.addChild(new Spacer(1));
 
+    const settingsListTheme = {
+      ...getSettingsListTheme(),
+      hint: (text: string) => theme.fg("dim", text.replace("Enter/Space to change · Esc to cancel", "Enter/Space change · Ctrl+U unset · Esc back")),
+    };
+
     const settingsList = new SettingsList(
       items,
       Math.min(Math.max(items.length, 1), 12),
-      getSettingsListTheme(),
+      settingsListTheme,
       (id, newValue) => {
         void onChange(id, newValue, settingsList);
       },
@@ -459,6 +508,12 @@ async function showSettingsScreen(
       render: (width: number) => container.render(width),
       invalidate: () => container.invalidate(),
       handleInput: (data: string) => {
+        if (!(settingsList as any).submenuComponent && matchesKey(data, Key.ctrl("u"))) {
+          const item = selectedSettingsItem(settingsList);
+          if (item) void onUnset(item.id, settingsList);
+          tui.requestRender();
+          return;
+        }
         settingsList.handleInput(data);
         tui.requestRender();
       },
@@ -470,28 +525,6 @@ async function showSettingsScreen(
 
 function modelLabel(model: Model<any>): string {
   return `${model.provider}/${model.id}`;
-}
-
-async function selectModel(ctx: ExtensionCommandContext): Promise<Model<any> | undefined> {
-  ctx.modelRegistry.refresh();
-  const models = ctx.modelRegistry.getAvailable();
-  if (models.length === 0) {
-    notify(ctx, "No authenticated models available. Use /login first.", "warning");
-    return undefined;
-  }
-
-  const sorted = [...models].sort((a, b) => modelLabel(a).localeCompare(modelLabel(b)));
-  const selected = await selectItem(ctx, "Select Model", sorted.map((model) => ({
-    value: modelLabel(model),
-    label: model.id,
-    description: `${model.provider}${model.name && model.name !== model.id ? ` · ${model.name}` : ""}`,
-  })));
-  if (!selected) return undefined;
-
-  const slash = selected.indexOf("/");
-  const provider = selected.slice(0, slash);
-  const id = selected.slice(slash + 1);
-  return ctx.modelRegistry.find(provider, id);
 }
 
 function getScopedDefaultModel(scope: ConfigScope, cwd: string): { provider: string; id: string; label: string } | undefined {
@@ -537,11 +570,8 @@ function notifyProjectThinkingOverrideForGlobal(scope: ConfigScope, ctx: Extensi
   }
 }
 
-async function applyModel(scope: ConfigScope, pi: ExtensionAPI, ctx: ExtensionCommandContext): Promise<void> {
+async function applyModel(scope: ConfigScope, pi: ExtensionAPI, ctx: ExtensionCommandContext, model: Model<any>): Promise<void> {
   if (scope === "project" && !ensureProjectWritable(ctx)) return;
-
-  const model = await selectModel(ctx);
-  if (!model) return;
 
   if (scope === "global") {
     const ok = await pi.setModel(model);
@@ -603,36 +633,8 @@ async function unsetModel(scope: ConfigScope, pi: ExtensionAPI, ctx: ExtensionCo
   notifyProjectModelOverrideForGlobal(scope, ctx);
 }
 
-async function showModelSettings(scope: ConfigScope, pi: ExtensionAPI, ctx: ExtensionCommandContext): Promise<void> {
+async function applyThinking(scope: ConfigScope, pi: ExtensionAPI, ctx: ExtensionCommandContext, level: ThinkingLevel): Promise<void> {
   if (scope === "project" && !ensureProjectWritable(ctx)) return;
-
-  const current = getScopedDefaultModel(scope, ctx.cwd)?.label ?? "(unset)";
-  const selected = await selectOption<ModelAction>(ctx, `${settingLabel(scope)} Model`, [
-    { value: "set", label: "Set model", description: `Current ${scope} default model: ${current}` },
-    {
-      value: "unset",
-      label: scope === "project" ? "Unset project model override" : "Unset global default model",
-      description: scope === "project"
-        ? "Remove defaultProvider/defaultModel from project settings and inherit global."
-        : "Remove defaultProvider/defaultModel from global settings and use pi's default model resolution.",
-    },
-    { value: "back", label: "Back" },
-  ]);
-
-  if (!selected || selected === "back") return;
-  if (selected === "set") await applyModel(scope, pi, ctx);
-  if (selected === "unset") await unsetModel(scope, pi, ctx);
-}
-
-async function applyThinking(scope: ConfigScope, pi: ExtensionAPI, ctx: ExtensionCommandContext): Promise<void> {
-  if (scope === "project" && !ensureProjectWritable(ctx)) return;
-
-  const current = pi.getThinkingLevel();
-  const level = await selectOption(ctx, "Select Thinking Level", THINKING_LEVELS.map((value) => ({
-    value,
-    label: value === current ? `${value} (current)` : value,
-  })));
-  if (!level) return;
 
   if (scope === "global") {
     pi.setThinkingLevel(level);
@@ -679,26 +681,358 @@ async function unsetThinking(scope: ConfigScope, pi: ExtensionAPI, ctx: Extensio
   notifyProjectThinkingOverrideForGlobal(scope, ctx);
 }
 
+interface ConfigModelItem {
+  provider: string;
+  id: string;
+  model: Model<any>;
+}
+
+function findConfiguredDefaultModel(scope: ConfigScope, cwd: string, ctx: ExtensionCommandContext): Model<any> | undefined {
+  const scoped = getScopedDefaultModel(scope, cwd);
+  if (scoped) return ctx.modelRegistry.find(scoped.provider, scoped.id);
+
+  if (scope === "project") {
+    const global = getScopedDefaultModel("global", cwd);
+    if (global) return ctx.modelRegistry.find(global.provider, global.id);
+  }
+
+  return undefined;
+}
+
+function modelDefaultDisplay(scope: ConfigScope, cwd: string): string {
+  const scoped = getScopedDefaultModel(scope, cwd);
+  if (scoped) return scoped.label;
+
+  if (scope === "project") {
+    const global = getScopedDefaultModel("global", cwd);
+    if (global) return `↳ ${global.label} (inherited)`;
+  }
+
+  return "↳ (built-in)";
+}
+
+class ConfigModelSelector implements Component, Focusable {
+  private container = new Container();
+  private input = new Input();
+  private allModels: ConfigModelItem[];
+  private filteredModels: ConfigModelItem[];
+  private selectedIndex = 0;
+  private _focused = false;
+
+  get focused(): boolean {
+    return this._focused;
+  }
+
+  set focused(value: boolean) {
+    this._focused = value;
+    this.input.focused = value;
+  }
+
+  constructor(
+    private title: string,
+    models: Model<any>[],
+    private currentDefault: Model<any> | undefined,
+    private currentDefaultText: string,
+    private scope: ConfigScope,
+    private theme: any,
+    private onSelect: (model: Model<any>) => Promise<void>,
+    private onUnset: () => Promise<void>,
+    private done: () => void,
+  ) {
+    this.allModels = this.sortModels(models.map((model) => ({ provider: model.provider, id: model.id, model })));
+    this.filteredModels = this.allModels;
+    const currentIndex = this.filteredModels.findIndex((item) => modelsAreEqual(this.currentDefault, item.model));
+    if (currentIndex >= 0) this.selectedIndex = currentIndex;
+    this.input.onSubmit = () => this.selectCurrent();
+    this.input.onEscape = () => this.done();
+    this.rebuild();
+  }
+
+  private sortModels(models: ConfigModelItem[]): ConfigModelItem[] {
+    return [...models].sort((a, b) => {
+      const aIsCurrent = modelsAreEqual(this.currentDefault, a.model);
+      const bIsCurrent = modelsAreEqual(this.currentDefault, b.model);
+      if (aIsCurrent && !bIsCurrent) return -1;
+      if (!aIsCurrent && bIsCurrent) return 1;
+      const provider = a.provider.localeCompare(b.provider);
+      return provider !== 0 ? provider : a.id.localeCompare(b.id);
+    });
+  }
+
+  private filterModels(): void {
+    const query = this.input.getValue().trim();
+    this.filteredModels = query
+      ? fuzzyFilter(this.allModels, query, ({ id, provider, model }) => `${id} ${provider} ${provider}/${id} ${model.name ?? ""}`)
+      : this.allModels;
+    this.selectedIndex = Math.min(this.selectedIndex, Math.max(0, this.filteredModels.length - 1));
+    this.rebuild();
+  }
+
+  private selectCurrent(): void {
+    const selected = this.filteredModels[this.selectedIndex];
+    if (!selected) return;
+    void this.onSelect(selected.model).finally(() => this.done());
+  }
+
+  private unsetCurrentScope(): void {
+    void this.onUnset().finally(() => this.done());
+  }
+
+  private rebuild(): void {
+    this.container.clear();
+    this.container.addChild(new DynamicBorder((s: string) => this.theme.fg("accent", s)));
+    this.container.addChild(new Text(this.theme.fg("accent", this.theme.bold(this.title)), 1, 0));
+    this.container.addChild(new Text(this.theme.fg("dim", `Scope: ${scopeLabel(this.scope)} · Current default: ${this.currentDefaultText}`), 1, 0));
+    this.container.addChild(new Spacer(1));
+    this.container.addChild(this.input);
+    this.container.addChild(new Spacer(1));
+
+    const maxVisible = 10;
+    const startIndex = Math.max(0, Math.min(this.selectedIndex - Math.floor(maxVisible / 2), this.filteredModels.length - maxVisible));
+    const endIndex = Math.min(startIndex + maxVisible, this.filteredModels.length);
+
+    for (let i = startIndex; i < endIndex; i++) {
+      const item = this.filteredModels[i];
+      if (!item) continue;
+      const selected = i === this.selectedIndex;
+      const prefix = selected ? this.theme.fg("accent", "→ ") : "  ";
+      const modelText = selected ? this.theme.fg("accent", item.id) : item.id;
+      const providerBadge = this.theme.fg("muted", `[${item.provider}]`);
+      const checkmark = modelsAreEqual(this.currentDefault, item.model) ? this.theme.fg("success", " ✓") : "";
+      this.container.addChild(new Text(`${prefix}${modelText} ${providerBadge}${checkmark}`, 0, 0));
+    }
+
+    if (startIndex > 0 || endIndex < this.filteredModels.length) {
+      this.container.addChild(new Text(this.theme.fg("muted", `  (${this.selectedIndex + 1}/${this.filteredModels.length})`), 0, 0));
+    }
+
+    if (this.filteredModels.length === 0) {
+      this.container.addChild(new Text(this.theme.fg("warning", "  No matching models"), 0, 0));
+    } else {
+      const selected = this.filteredModels[this.selectedIndex];
+      this.container.addChild(new Spacer(1));
+      this.container.addChild(new Text(this.theme.fg("muted", `  Model Name: ${selected?.model.name ?? selected?.id ?? ""}`), 0, 0));
+    }
+
+    this.container.addChild(new Spacer(1));
+    this.container.addChild(new Text(this.theme.fg("dim", `Enter set · Ctrl+U unset ${scopeLabel(this.scope)} · Esc back`), 1, 0));
+    this.container.addChild(new DynamicBorder((s: string) => this.theme.fg("accent", s)));
+  }
+
+  render(width: number): string[] {
+    return this.container.render(width);
+  }
+
+  invalidate(): void {
+    this.container.invalidate();
+  }
+
+  handleInput(data: string): void {
+    const kb = getKeybindings();
+    if (matchesKey(data, Key.ctrl("u"))) {
+      this.unsetCurrentScope();
+      return;
+    }
+    if (kb.matches(data, "tui.select.up")) {
+      if (this.filteredModels.length === 0) return;
+      this.selectedIndex = this.selectedIndex === 0 ? this.filteredModels.length - 1 : this.selectedIndex - 1;
+      this.rebuild();
+      return;
+    }
+    if (kb.matches(data, "tui.select.down")) {
+      if (this.filteredModels.length === 0) return;
+      this.selectedIndex = this.selectedIndex === this.filteredModels.length - 1 ? 0 : this.selectedIndex + 1;
+      this.rebuild();
+      return;
+    }
+    if (kb.matches(data, "tui.select.confirm")) {
+      this.selectCurrent();
+      return;
+    }
+    if (kb.matches(data, "tui.select.cancel")) {
+      this.done();
+      return;
+    }
+
+    this.input.handleInput(data);
+    this.filterModels();
+  }
+}
+
+function effectiveThinkingLevel(scope: ConfigScope, cwd: string): ThinkingLevel | undefined {
+  const scoped = readSettings(scope, cwd).defaultThinkingLevel;
+  if (THINKING_LEVELS.includes(scoped)) return scoped;
+
+  if (scope === "project") {
+    const global = readSettings("global", cwd).defaultThinkingLevel;
+    if (THINKING_LEVELS.includes(global)) return global;
+  }
+
+  return undefined;
+}
+
+function thinkingDefaultDisplay(scope: ConfigScope, cwd: string): string {
+  const scoped = readSettings(scope, cwd).defaultThinkingLevel;
+  if (THINKING_LEVELS.includes(scoped)) return scoped;
+
+  if (scope === "project") {
+    const global = readSettings("global", cwd).defaultThinkingLevel;
+    if (THINKING_LEVELS.includes(global)) return `↳ ${global} (inherited)`;
+  }
+
+  return "↳ (built-in)";
+}
+
+class ConfigThinkingSelector implements Component {
+  private container = new Container();
+  private selectedIndex = 0;
+
+  constructor(
+    private title: string,
+    private currentDefault: ThinkingLevel | undefined,
+    private currentDefaultText: string,
+    private scope: ConfigScope,
+    private theme: any,
+    private onSelect: (level: ThinkingLevel) => Promise<void>,
+    private onUnset: () => Promise<void>,
+    private done: () => void,
+  ) {
+    const currentIndex = currentDefault ? THINKING_LEVELS.indexOf(currentDefault) : -1;
+    if (currentIndex >= 0) this.selectedIndex = currentIndex;
+    this.rebuild();
+  }
+
+  private selectCurrent(): void {
+    const level = THINKING_LEVELS[this.selectedIndex];
+    if (!level) return;
+    void this.onSelect(level).finally(() => this.done());
+  }
+
+  private unsetCurrentScope(): void {
+    void this.onUnset().finally(() => this.done());
+  }
+
+  private rebuild(): void {
+    this.container.clear();
+    this.container.addChild(new DynamicBorder((s: string) => this.theme.fg("accent", s)));
+    this.container.addChild(new Text(this.theme.fg("accent", this.theme.bold(this.title)), 1, 0));
+    this.container.addChild(new Text(this.theme.fg("dim", `Scope: ${scopeLabel(this.scope)} · Current default: ${this.currentDefaultText}`), 1, 0));
+    this.container.addChild(new Spacer(1));
+
+    for (let i = 0; i < THINKING_LEVELS.length; i++) {
+      const level = THINKING_LEVELS[i]!;
+      const selected = i === this.selectedIndex;
+      const prefix = selected ? this.theme.fg("accent", "→ ") : "  ";
+      const text = selected ? this.theme.fg("accent", level) : level;
+      const checkmark = this.currentDefault === level ? this.theme.fg("success", " ✓") : "";
+      this.container.addChild(new Text(`${prefix}${text}${checkmark}`, 0, 0));
+    }
+
+    this.container.addChild(new Spacer(1));
+    this.container.addChild(new Text(this.theme.fg("dim", `Enter set · Ctrl+U unset ${scopeLabel(this.scope)} · Esc back`), 1, 0));
+    this.container.addChild(new DynamicBorder((s: string) => this.theme.fg("accent", s)));
+  }
+
+  render(width: number): string[] {
+    return this.container.render(width);
+  }
+
+  invalidate(): void {
+    this.container.invalidate();
+  }
+
+  handleInput(data: string): void {
+    const kb = getKeybindings();
+    if (matchesKey(data, Key.ctrl("u"))) {
+      this.unsetCurrentScope();
+      return;
+    }
+    if (kb.matches(data, "tui.select.up")) {
+      this.selectedIndex = this.selectedIndex === 0 ? THINKING_LEVELS.length - 1 : this.selectedIndex - 1;
+      this.rebuild();
+      return;
+    }
+    if (kb.matches(data, "tui.select.down")) {
+      this.selectedIndex = this.selectedIndex === THINKING_LEVELS.length - 1 ? 0 : this.selectedIndex + 1;
+      this.rebuild();
+      return;
+    }
+    if (kb.matches(data, "tui.select.confirm")) {
+      this.selectCurrent();
+      return;
+    }
+    if (kb.matches(data, "tui.select.cancel")) {
+      this.done();
+    }
+  }
+}
+
+async function showModelSettings(scope: ConfigScope, pi: ExtensionAPI, ctx: ExtensionCommandContext): Promise<void> {
+  if (scope === "project" && !ensureProjectWritable(ctx)) return;
+  if (ctx.mode !== "tui") {
+    notify(ctx, "Model config UI requires TUI mode", "error");
+    return;
+  }
+
+  ctx.modelRegistry.refresh();
+  const models = ctx.modelRegistry.getAvailable();
+  if (models.length === 0) {
+    notify(ctx, "No authenticated models available. Use /login first.", "warning");
+    return;
+  }
+
+  await ctx.ui.custom<void>((tui, theme, _kb, done) => {
+    const component = new ConfigModelSelector(
+      `${settingLabel(scope)} Model`,
+      models,
+      findConfiguredDefaultModel(scope, ctx.cwd, ctx),
+      modelDefaultDisplay(scope, ctx.cwd),
+      scope,
+      theme,
+      (model) => applyModel(scope, pi, ctx, model),
+      () => unsetModel(scope, pi, ctx),
+      () => done(undefined),
+    );
+
+    return {
+      render: (width: number) => component.render(width),
+      invalidate: () => component.invalidate(),
+      handleInput: (data: string) => {
+        component.handleInput(data);
+        tui.requestRender();
+      },
+    };
+  });
+}
+
 async function showThinkingSettings(scope: ConfigScope, pi: ExtensionAPI, ctx: ExtensionCommandContext): Promise<void> {
   if (scope === "project" && !ensureProjectWritable(ctx)) return;
+  if (ctx.mode !== "tui") {
+    notify(ctx, "Thinking config UI requires TUI mode", "error");
+    return;
+  }
 
-  const settings = readSettings(scope, ctx.cwd);
-  const current = THINKING_LEVELS.includes(settings.defaultThinkingLevel) ? settings.defaultThinkingLevel : "(unset)";
-  const selected = await selectOption<ThinkingAction>(ctx, `${settingLabel(scope)} Thinking Level`, [
-    { value: "set", label: "Set thinking level", description: `Current ${scope} default thinking level: ${current}` },
-    {
-      value: "unset",
-      label: scope === "project" ? "Unset project thinking override" : "Unset global thinking default",
-      description: scope === "project"
-        ? "Remove defaultThinkingLevel from project settings and inherit global."
-        : "Remove defaultThinkingLevel from global settings and use pi's default thinking resolution.",
-    },
-    { value: "back", label: "Back" },
-  ]);
+  await ctx.ui.custom<void>((tui, theme, _kb, done) => {
+    const component = new ConfigThinkingSelector(
+      `${settingLabel(scope)} Thinking Level`,
+      effectiveThinkingLevel(scope, ctx.cwd),
+      thinkingDefaultDisplay(scope, ctx.cwd),
+      scope,
+      theme,
+      (level) => applyThinking(scope, pi, ctx, level),
+      () => unsetThinking(scope, pi, ctx),
+      () => done(undefined),
+    );
 
-  if (!selected || selected === "back") return;
-  if (selected === "set") await applyThinking(scope, pi, ctx);
-  if (selected === "unset") await unsetThinking(scope, pi, ctx);
+    return {
+      render: (width: number) => component.render(width),
+      invalidate: () => component.invalidate(),
+      handleInput: (data: string) => {
+        component.handleInput(data);
+        tui.requestRender();
+      },
+    };
+  });
 }
 
 // ── Common settings ─────────────────────────────────────────────────────
@@ -711,9 +1045,6 @@ function numericValue(value: unknown, fallback: number): string {
   return typeof value === "number" && Number.isFinite(value) ? String(value) : String(fallback);
 }
 
-function withUnset(values: readonly string[]): string[] {
-  return [...values, UNSET_VALUE];
-}
 
 function commonItems(scope: ConfigScope, ctx: ExtensionCommandContext): SettingItem[] {
   const settings = currentScopedSettings(scope, ctx);
@@ -724,26 +1055,20 @@ function commonItems(scope: ConfigScope, ctx: ExtensionCommandContext): SettingI
   const providerRetrySettings = effectiveManager.getProviderRetrySettings();
   const compactionSettings = effectiveManager.getCompactionSettings();
   const branchSummarySettings = effectiveManager.getBranchSummarySettings();
+  const cv = (path: string[], effectiveValue: any) => scopedCurrentValue(scope, ctx.cwd, path, effectiveValue);
 
   const items: SettingItem[] = [
     {
       id: "theme",
       label: "Theme",
       description: "Theme name. Built-ins include dark and light; custom themes may also be available.",
-      currentValue: stringifyValue(settings.theme ?? effectiveManager.getTheme()),
+      currentValue: cv(["theme"], effectiveManager.getTheme() ?? "dark"),
       submenu: (_current, done) => {
-        const themes = [
-          {
-            value: UNSET_VALUE,
-            label: UNSET_LABEL,
-            description: scope === "project" ? "Remove project theme override and inherit global." : "Remove global theme override and use the built-in default.",
-          },
-          ...ctx.ui.getAllThemes().map((theme) => ({
-            value: theme.name,
-            label: theme.name,
-            description: theme.path ?? "built-in",
-          })),
-        ];
+        const themes = ctx.ui.getAllThemes().map((theme) => ({
+          value: theme.name,
+          label: theme.name,
+          description: theme.path ?? "built-in",
+        }));
         return selectSubmenu("Select Theme", themes, done, ctx.ui.theme);
       },
     },
@@ -751,280 +1076,280 @@ function commonItems(scope: ConfigScope, ctx: ExtensionCommandContext): SettingI
       id: "transport",
       label: "Transport",
       description: "Preferred provider transport.",
-      currentValue: String(settings.transport ?? effectiveManager.getTransport()),
-      values: withUnset(TRANSPORTS),
+      currentValue: cv(["transport"], effectiveManager.getTransport()),
+      values: [...TRANSPORTS],
     },
     {
       id: "steeringMode",
       label: "Steering mode",
       description: "How queued steering messages are delivered while the agent is streaming.",
-      currentValue: String(settings.steeringMode ?? effectiveManager.getSteeringMode()),
-      values: withUnset(QUEUE_MODES),
+      currentValue: cv(["steeringMode"], effectiveManager.getSteeringMode()),
+      values: [...QUEUE_MODES],
     },
     {
       id: "followUpMode",
       label: "Follow-up mode",
       description: "How queued follow-up messages are delivered after the agent stops.",
-      currentValue: String(settings.followUpMode ?? effectiveManager.getFollowUpMode()),
-      values: withUnset(QUEUE_MODES),
+      currentValue: cv(["followUpMode"], effectiveManager.getFollowUpMode()),
+      values: [...QUEUE_MODES],
     },
     {
       id: "hideThinkingBlock",
       label: "Hide thinking",
       description: "Hide thinking blocks in assistant output.",
-      currentValue: String(settings.hideThinkingBlock ?? effectiveManager.getHideThinkingBlock()),
-      values: withUnset(["true", "false"]),
+      currentValue: cv(["hideThinkingBlock"], effectiveManager.getHideThinkingBlock()),
+      values: ["true", "false"],
     },
     {
       id: "quietStartup",
       label: "Quiet startup",
       description: "Hide verbose startup resource listing.",
-      currentValue: String(settings.quietStartup ?? effectiveManager.getQuietStartup()),
-      values: withUnset(["true", "false"]),
+      currentValue: cv(["quietStartup"], effectiveManager.getQuietStartup()),
+      values: ["true", "false"],
     },
     {
       id: "collapseChangelog",
       label: "Collapse changelog",
       description: "Show condensed changelog after updates.",
-      currentValue: String(settings.collapseChangelog ?? effectiveManager.getCollapseChangelog()),
-      values: withUnset(["true", "false"]),
+      currentValue: cv(["collapseChangelog"], effectiveManager.getCollapseChangelog()),
+      values: ["true", "false"],
     },
     {
       id: "enableInstallTelemetry",
       label: "Install telemetry",
       description: "Send anonymous install/update telemetry. Global setting only.",
-      currentValue: String(settings.enableInstallTelemetry ?? effectiveManager.getEnableInstallTelemetry()),
-      values: withUnset(["true", "false"]),
+      currentValue: cv(["enableInstallTelemetry"], effectiveManager.getEnableInstallTelemetry()),
+      values: ["true", "false"],
     },
     {
       id: "defaultProjectTrust",
       label: "Default project trust",
       description: "Fallback trust behavior when no saved trust decision exists. Global setting only.",
-      currentValue: String(settings.defaultProjectTrust ?? effectiveManager.getDefaultProjectTrust()),
-      values: withUnset(DEFAULT_PROJECT_TRUST_VALUES),
+      currentValue: cv(["defaultProjectTrust"], effectiveManager.getDefaultProjectTrust()),
+      values: [...DEFAULT_PROJECT_TRUST_VALUES],
     },
     {
       id: "doubleEscapeAction",
       label: "Double escape",
       description: "Action for pressing Escape twice with empty editor.",
-      currentValue: String(settings.doubleEscapeAction ?? effectiveManager.getDoubleEscapeAction()),
-      values: withUnset(DOUBLE_ESCAPE_ACTIONS),
+      currentValue: cv(["doubleEscapeAction"], effectiveManager.getDoubleEscapeAction()),
+      values: [...DOUBLE_ESCAPE_ACTIONS],
     },
     {
       id: "treeFilterMode",
       label: "Tree filter",
       description: "Default filter mode for /tree.",
-      currentValue: String(settings.treeFilterMode ?? effectiveManager.getTreeFilterMode()),
-      values: withUnset(TREE_FILTER_MODES),
+      currentValue: cv(["treeFilterMode"], effectiveManager.getTreeFilterMode()),
+      values: [...TREE_FILTER_MODES],
     },
     {
       id: "compaction.enabled",
       label: "Auto compact",
       description: "Automatically compact context when it gets too large.",
-      currentValue: String(settings.compaction?.enabled ?? compactionSettings.enabled),
-      values: withUnset(["true", "false"]),
+      currentValue: cv(["compaction", "enabled"], compactionSettings.enabled),
+      values: ["true", "false"],
     },
     {
       id: "compaction.reserveTokens",
       label: "Compact reserve",
       description: "Tokens reserved for model response during compaction.",
-      currentValue: numericValue(settings.compaction?.reserveTokens, compactionSettings.reserveTokens),
+      currentValue: cv(["compaction", "reserveTokens"], compactionSettings.reserveTokens),
       submenu: (_current, done) => inputSubmenu("Compaction reserve tokens", numericValue(settings.compaction?.reserveTokens, compactionSettings.reserveTokens), done, ctx.ui.theme),
     },
     {
       id: "compaction.keepRecentTokens",
       label: "Compact recent",
       description: "Recent tokens kept unsummarized during compaction.",
-      currentValue: numericValue(settings.compaction?.keepRecentTokens, compactionSettings.keepRecentTokens),
+      currentValue: cv(["compaction", "keepRecentTokens"], compactionSettings.keepRecentTokens),
       submenu: (_current, done) => inputSubmenu("Compaction keep recent tokens", numericValue(settings.compaction?.keepRecentTokens, compactionSettings.keepRecentTokens), done, ctx.ui.theme),
     },
     {
       id: "branchSummary.reserveTokens",
       label: "Branch reserve",
       description: "Tokens reserved for branch summarization.",
-      currentValue: numericValue(settings.branchSummary?.reserveTokens, branchSummarySettings.reserveTokens),
+      currentValue: cv(["branchSummary", "reserveTokens"], branchSummarySettings.reserveTokens),
       submenu: (_current, done) => inputSubmenu("Branch summary reserve tokens", numericValue(settings.branchSummary?.reserveTokens, branchSummarySettings.reserveTokens), done, ctx.ui.theme),
     },
     {
       id: "branchSummary.skipPrompt",
       label: "Branch skip prompt",
       description: "Skip summarize-branch prompt on tree navigation.",
-      currentValue: String(settings.branchSummary?.skipPrompt ?? branchSummarySettings.skipPrompt),
-      values: withUnset(["true", "false"]),
+      currentValue: cv(["branchSummary", "skipPrompt"], branchSummarySettings.skipPrompt),
+      values: ["true", "false"],
     },
     {
       id: "retry.enabled",
       label: "Retry enabled",
       description: "Enable automatic agent-level retry on transient errors.",
-      currentValue: String(settings.retry?.enabled ?? retrySettings.enabled),
-      values: withUnset(["true", "false"]),
+      currentValue: cv(["retry", "enabled"], retrySettings.enabled),
+      values: ["true", "false"],
     },
     {
       id: "retry.maxRetries",
       label: "Retry max",
       description: "Maximum agent-level retry attempts.",
-      currentValue: numericValue(settings.retry?.maxRetries, retrySettings.maxRetries),
+      currentValue: cv(["retry", "maxRetries"], retrySettings.maxRetries),
       submenu: (_current, done) => inputSubmenu("Retry max retries", numericValue(settings.retry?.maxRetries, retrySettings.maxRetries), done, ctx.ui.theme),
     },
     {
       id: "retry.baseDelayMs",
       label: "Retry delay",
       description: "Base delay in milliseconds for agent-level exponential backoff.",
-      currentValue: numericValue(settings.retry?.baseDelayMs, retrySettings.baseDelayMs),
+      currentValue: cv(["retry", "baseDelayMs"], retrySettings.baseDelayMs),
       submenu: (_current, done) => inputSubmenu("Retry base delay ms", numericValue(settings.retry?.baseDelayMs, retrySettings.baseDelayMs), done, ctx.ui.theme),
     },
     {
       id: "retry.provider.timeoutMs",
       label: "Provider timeout",
       description: "Provider request timeout in milliseconds. Empty clears override.",
-      currentValue: stringifyValue(settings.retry?.provider?.timeoutMs ?? providerRetrySettings.timeoutMs),
+      currentValue: cv(["retry", "provider", "timeoutMs"], providerRetrySettings.timeoutMs),
       submenu: (_current, done) => inputSubmenu("Provider timeout ms", settings.retry?.provider?.timeoutMs === undefined ? "" : String(settings.retry.provider.timeoutMs), done, ctx.ui.theme),
     },
     {
       id: "retry.provider.maxRetries",
       label: "Provider retries",
       description: "Provider/SDK retry attempts. Empty clears override.",
-      currentValue: stringifyValue(settings.retry?.provider?.maxRetries ?? providerRetrySettings.maxRetries),
+      currentValue: cv(["retry", "provider", "maxRetries"], providerRetrySettings.maxRetries),
       submenu: (_current, done) => inputSubmenu("Provider max retries", settings.retry?.provider?.maxRetries === undefined ? "" : String(settings.retry.provider.maxRetries), done, ctx.ui.theme),
     },
     {
       id: "retry.provider.maxRetryDelayMs",
       label: "Provider delay cap",
       description: "Max server-requested retry delay in milliseconds.",
-      currentValue: numericValue(settings.retry?.provider?.maxRetryDelayMs, providerRetrySettings.maxRetryDelayMs),
+      currentValue: cv(["retry", "provider", "maxRetryDelayMs"], providerRetrySettings.maxRetryDelayMs),
       submenu: (_current, done) => inputSubmenu("Provider max retry delay ms", numericValue(settings.retry?.provider?.maxRetryDelayMs, providerRetrySettings.maxRetryDelayMs), done, ctx.ui.theme),
     },
     {
       id: "httpIdleTimeoutMs",
       label: "HTTP idle timeout",
       description: "HTTP header/body idle timeout in milliseconds. 0 disables.",
-      currentValue: numericValue(settings.httpIdleTimeoutMs, effectiveManager.getHttpIdleTimeoutMs()),
+      currentValue: cv(["httpIdleTimeoutMs"], effectiveManager.getHttpIdleTimeoutMs()),
       submenu: (_current, done) => inputSubmenu("HTTP idle timeout ms", numericValue(settings.httpIdleTimeoutMs, effectiveManager.getHttpIdleTimeoutMs()), done, ctx.ui.theme),
     },
     {
       id: "websocketConnectTimeoutMs",
       label: "WebSocket timeout",
       description: "WebSocket connect timeout in milliseconds. Empty clears override.",
-      currentValue: stringifyValue(settings.websocketConnectTimeoutMs ?? effectiveManager.getWebSocketConnectTimeoutMs()),
+      currentValue: cv(["websocketConnectTimeoutMs"], effectiveManager.getWebSocketConnectTimeoutMs()),
       submenu: (_current, done) => inputSubmenu("WebSocket connect timeout ms", settings.websocketConnectTimeoutMs === undefined ? "" : String(settings.websocketConnectTimeoutMs), done, ctx.ui.theme),
     },
     {
       id: "terminal.showImages",
       label: "Show images",
       description: "Render images inline when terminal supports it.",
-      currentValue: String(settings.terminal?.showImages ?? effectiveManager.getShowImages()),
-      values: withUnset(["true", "false"]),
+      currentValue: cv(["terminal", "showImages"], effectiveManager.getShowImages()),
+      values: ["true", "false"],
     },
     {
       id: "terminal.imageWidthCells",
       label: "Image width",
       description: "Preferred inline image width in terminal cells.",
-      currentValue: String(settings.terminal?.imageWidthCells ?? effectiveManager.getImageWidthCells()),
-      values: withUnset(["60", "80", "120"]),
+      currentValue: cv(["terminal", "imageWidthCells"], effectiveManager.getImageWidthCells()),
+      values: ["60", "80", "120"],
     },
     {
       id: "terminal.clearOnShrink",
       label: "Clear on shrink",
       description: "Clear empty rows when rendered content shrinks.",
-      currentValue: String(settings.terminal?.clearOnShrink ?? effectiveManager.getClearOnShrink()),
-      values: withUnset(["true", "false"]),
+      currentValue: cv(["terminal", "clearOnShrink"], effectiveManager.getClearOnShrink()),
+      values: ["true", "false"],
     },
     {
       id: "terminal.showTerminalProgress",
       label: "Terminal progress",
       description: "Show OSC 9;4 progress indicators in terminal tab bar.",
-      currentValue: String(settings.terminal?.showTerminalProgress ?? effectiveManager.getShowTerminalProgress()),
-      values: withUnset(["true", "false"]),
+      currentValue: cv(["terminal", "showTerminalProgress"], effectiveManager.getShowTerminalProgress()),
+      values: ["true", "false"],
     },
     {
       id: "images.autoResize",
       label: "Auto-resize images",
       description: "Resize large images before sending to providers.",
-      currentValue: String(settings.images?.autoResize ?? effectiveManager.getImageAutoResize()),
-      values: withUnset(["true", "false"]),
+      currentValue: cv(["images", "autoResize"], effectiveManager.getImageAutoResize()),
+      values: ["true", "false"],
     },
     {
       id: "images.blockImages",
       label: "Block images",
       description: "Prevent images from being sent to providers.",
-      currentValue: String(settings.images?.blockImages ?? effectiveManager.getBlockImages()),
-      values: withUnset(["true", "false"]),
+      currentValue: cv(["images", "blockImages"], effectiveManager.getBlockImages()),
+      values: ["true", "false"],
     },
     {
       id: "showHardwareCursor",
       label: "Hardware cursor",
       description: "Show terminal hardware cursor for IME positioning.",
-      currentValue: String(settings.showHardwareCursor ?? effectiveManager.getShowHardwareCursor()),
-      values: withUnset(["true", "false"]),
+      currentValue: cv(["showHardwareCursor"], effectiveManager.getShowHardwareCursor()),
+      values: ["true", "false"],
     },
     {
       id: "editorPaddingX",
       label: "Editor padding",
       description: "Horizontal editor padding, 0-3.",
-      currentValue: numericValue(settings.editorPaddingX, effectiveManager.getEditorPaddingX()),
-      values: withUnset(["0", "1", "2", "3"]),
+      currentValue: cv(["editorPaddingX"], effectiveManager.getEditorPaddingX()),
+      values: ["0", "1", "2", "3"],
     },
     {
       id: "autocompleteMaxVisible",
       label: "Autocomplete max",
       description: "Max visible autocomplete items, 3-20.",
-      currentValue: numericValue(settings.autocompleteMaxVisible, effectiveManager.getAutocompleteMaxVisible()),
-      values: withUnset(["3", "5", "7", "10", "15", "20"]),
+      currentValue: cv(["autocompleteMaxVisible"], effectiveManager.getAutocompleteMaxVisible()),
+      values: ["3", "5", "7", "10", "15", "20"],
     },
     {
       id: "enableSkillCommands",
       label: "Skill commands",
       description: "Register skills as /skill:name commands.",
-      currentValue: String(settings.enableSkillCommands ?? effectiveManager.getEnableSkillCommands()),
-      values: withUnset(["true", "false"]),
+      currentValue: cv(["enableSkillCommands"], effectiveManager.getEnableSkillCommands()),
+      values: ["true", "false"],
     },
     {
       id: "warnings.anthropicExtraUsage",
       label: "Anthropic warning",
       description: "Warn when Anthropic subscription auth may use paid extra usage.",
-      currentValue: String(settings.warnings?.anthropicExtraUsage ?? effectiveManager.getWarnings().anthropicExtraUsage ?? true),
-      values: withUnset(["true", "false"]),
+      currentValue: cv(["warnings", "anthropicExtraUsage"], effectiveManager.getWarnings().anthropicExtraUsage ?? true),
+      values: ["true", "false"],
     },
     {
       id: "shellPath",
       label: "Shell path",
       description: "Custom bash shell path. Empty clears override.",
-      currentValue: stringifyValue(settings.shellPath ?? effectiveManager.getShellPath()),
+      currentValue: cv(["shellPath"], effectiveManager.getShellPath()),
       submenu: (_current, done) => inputSubmenu("Shell path", textValue(settings.shellPath, effectiveManager.getShellPath() ?? ""), done, ctx.ui.theme),
     },
     {
       id: "shellCommandPrefix",
       label: "Shell prefix",
       description: "Command prefix prepended to every bash command. Empty clears override.",
-      currentValue: stringifyValue(settings.shellCommandPrefix ?? effectiveManager.getShellCommandPrefix()),
+      currentValue: cv(["shellCommandPrefix"], effectiveManager.getShellCommandPrefix()),
       submenu: (_current, done) => inputSubmenu("Shell command prefix", textValue(settings.shellCommandPrefix, effectiveManager.getShellCommandPrefix() ?? ""), done, ctx.ui.theme),
     },
     {
       id: "sessionDir",
       label: "Session dir",
       description: "Custom session directory. Empty clears override.",
-      currentValue: stringifyValue(settings.sessionDir ?? effectiveManager.getSessionDir()),
+      currentValue: cv(["sessionDir"], effectiveManager.getSessionDir()),
       submenu: (_current, done) => inputSubmenu("Session directory", textValue(settings.sessionDir, effectiveManager.getSessionDir() ?? ""), done, ctx.ui.theme),
     },
     {
       id: "markdown.codeBlockIndent",
       label: "Code indent",
       description: "Indentation string for markdown code blocks.",
-      currentValue: stringifyValue(settings.markdown?.codeBlockIndent ?? effectiveManager.getCodeBlockIndent()),
+      currentValue: cv(["markdown", "codeBlockIndent"], effectiveManager.getCodeBlockIndent()),
       submenu: (_current, done) => inputSubmenu("Markdown code block indent", textValue(settings.markdown?.codeBlockIndent, effectiveManager.getCodeBlockIndent()), done, ctx.ui.theme),
     },
     {
       id: "npmCommand",
       label: "NPM command",
       description: "Comma-separated argv used for package-manager operations. Empty clears override.",
-      currentValue: stringifyValue(settings.npmCommand ?? effectiveManager.getNpmCommand()),
+      currentValue: cv(["npmCommand"], effectiveManager.getNpmCommand()),
       submenu: (_current, done) => inputSubmenu("NPM command argv", arrayToText(settings.npmCommand ?? effectiveManager.getNpmCommand()), done, ctx.ui.theme),
     },
     {
       id: "enabledModels",
       label: "Enabled models",
       description: "Comma-separated model patterns for Ctrl+P cycling. Empty clears this scope's override.",
-      currentValue: stringifyValue(settings.enabledModels),
+      currentValue: cv(["enabledModels"], undefined),
       submenu: (_current, done) => inputSubmenu("Enabled model patterns", arrayToText(settings.enabledModels), done, ctx.ui.theme),
     },
   ];
@@ -1083,8 +1408,6 @@ function parseOptionalString(value: string): string | undefined {
 }
 
 function parseCommonValue(id: string, value: string): any {
-  if (value === UNSET_VALUE) return undefined;
-
   switch (id) {
     case "hideThinkingBlock":
     case "quietStartup":
@@ -1135,6 +1458,11 @@ function parseCommonValue(id: string, value: string): any {
   }
 }
 
+function refreshCommonListValue(scope: ConfigScope, ctx: ExtensionCommandContext, id: string, list: SettingsList): void {
+  const item = commonItems(scope, ctx).find((candidate) => candidate.id === id);
+  if (item) list.updateValue(id, item.currentValue);
+}
+
 async function showCommonSettings(scope: ConfigScope, ctx: ExtensionCommandContext): Promise<void> {
   if (ctx.mode !== "tui") {
     notify(ctx, "Common settings UI requires TUI mode", "error");
@@ -1142,33 +1470,42 @@ async function showCommonSettings(scope: ConfigScope, ctx: ExtensionCommandConte
   }
   if (scope === "project" && !ensureProjectWritable(ctx)) return;
 
-  await showSettingsScreen(ctx, `${settingLabel(scope)} Common Settings`, commonItems(scope, ctx), async (id, newValue, list) => {
+  const saveValue = async (id: string, value: any, rawValue: string, list: SettingsList, unset: boolean) => {
     const path = id.split(".");
-    const parsed = parseCommonValue(id, newValue);
-    setScopedValue(scope, ctx.cwd, path, parsed);
-    list.updateValue(id, stringifyValue(parsed));
+    setScopedValue(scope, ctx.cwd, path, value);
+    refreshCommonListValue(scope, ctx, id, list);
 
-    if (id === "theme" && parsed !== undefined) {
-      const result = ctx.ui.setTheme(newValue);
-      if (!result.success) notify(ctx, result.error ?? `Failed to apply theme ${newValue}`, "warning");
+    if (id === "theme" && value !== undefined) {
+      const result = ctx.ui.setTheme(rawValue);
+      if (!result.success) notify(ctx, result.error ?? `Failed to apply theme ${rawValue}`, "warning");
     }
-    if (id === "theme" && parsed === undefined) {
+    if (id === "theme" && value === undefined) {
       notify(ctx, "Theme override cleared. Reload or restart may be required to apply the inherited theme.", "info");
+      return;
     }
-    if (id === "terminal.clearOnShrink" && parsed !== undefined) {
+    if (id === "terminal.clearOnShrink" && value !== undefined) {
       notify(ctx, "clearOnShrink saved; it applies after reload or restart.", "info");
     }
-    if (id === "showHardwareCursor" && parsed !== undefined) {
+    if (id === "showHardwareCursor" && value !== undefined) {
       notify(ctx, "showHardwareCursor saved; it applies after reload or restart.", "info");
     }
 
-    if (id !== "theme") {
-      notify(ctx, parsed === undefined
-        ? `${id} override cleared. Reload may be required for the current session to observe it.`
-        : `${id} saved. Reload may be required for the current session to observe it.`, "info");
-    }
+    notify(ctx, unset || value === undefined
+      ? `${id} override cleared. Reload may be required for the current session to observe it.`
+      : `${id} saved. Reload may be required for the current session to observe it.`, "info");
+  };
 
-  });
+  await showSettingsScreen(
+    ctx,
+    `${settingLabel(scope)} Common Settings`,
+    commonItems(scope, ctx),
+    async (id, newValue, list) => {
+      await saveValue(id, parseCommonValue(id, newValue), newValue, list, false);
+    },
+    async (id, list) => {
+      await saveValue(id, undefined, "", list, true);
+    },
+  );
 }
 
 // ── Resource path/source manager ─────────────────────────────────────────
@@ -1216,10 +1553,9 @@ async function showResourceField(scope: ConfigScope, ctx: ExtensionCommandContex
       { value: "remove", label: "Remove entry", description: entries.length > 0 ? `${entries.length} configured` : "No entries" },
       { value: "clear", label: "Unset entries", description: "Remove this resource array from this scope's settings" },
       { value: "list", label: "List entries", description: entries.length > 0 ? entries.map(entryToLabel).join(" | ") : "No entries" },
-      { value: "back", label: "Back" },
     ]);
 
-    if (!selected || selected === "back") return false;
+    if (!selected) return false;
 
     if (selected === "list") {
       notify(ctx, entries.length > 0 ? entries.map(entryToLabel).join("\n") : `No ${field} entries`, "info");
@@ -1266,16 +1602,13 @@ async function showResources(scope: ConfigScope, ctx: ExtensionCommandContext): 
   if (scope === "project" && !ensureProjectWritable(ctx)) return false;
 
   while (true) {
-    const selected = await selectOption<ResourceField | "back">(ctx, `${settingLabel(scope)} Resource Paths`, [
-      ...RESOURCE_FIELDS.map((field) => ({
-        value: field,
-        label: field,
-        description: `${getResourceEntries(scope, ctx, field).length} entries · ${resourceDescription(field)}`,
-      })),
-      { value: "back", label: "Back" },
-    ]);
+    const selected = await selectOption<ResourceField>(ctx, `${settingLabel(scope)} Resource Paths`, RESOURCE_FIELDS.map((field) => ({
+      value: field,
+      label: field,
+      description: `${getResourceEntries(scope, ctx, field).length} entries · ${resourceDescription(field)}`,
+    })));
 
-    if (!selected || selected === "back") return false;
+    if (!selected) return false;
     if (await showResourceField(scope, ctx, selected)) return true;
   }
 }
@@ -1286,20 +1619,17 @@ async function showMainMenu(scope: ConfigScope, pi: ExtensionAPI, ctx: Extension
   if (scope === "project" && !ensureProjectWritable(ctx)) return;
 
   while (true) {
-    const settings = readSettings(scope, ctx.cwd);
-    const currentModel = settings.defaultProvider && settings.defaultModel
-      ? `${settings.defaultProvider}/${settings.defaultModel}`
-      : "(unset)";
+    const currentModel = modelDefaultDisplay(scope, ctx.cwd);
+    const currentThinking = thinkingDefaultDisplay(scope, ctx.cwd);
     const selected = await selectOption<MainAction>(ctx, `${settingLabel(scope)} Config`, [
-      { value: "model", label: "Model", description: `Default model: ${currentModel} · set or unset this scope` },
-      { value: "thinking", label: "Thinking level", description: `Default thinking: ${settings.defaultThinkingLevel ?? "(unset)"} · set or unset this scope` },
+      { value: "model", label: "Model", description: `Default model: ${currentModel} · Enter set · Ctrl+U unset` },
+      { value: "thinking", label: "Thinking level", description: `Default thinking: ${currentThinking} · Enter set · Ctrl+U unset` },
       { value: "common", label: "Common settings", description: "Theme, transport, queues, retry, compaction, terminal, editor, shell, resources" },
       { value: "resources", label: "Resource paths", description: "extensions, skills, prompts, themes, packages" },
       { value: "reload", label: "Reload", description: "Reload keybindings, extensions, skills, prompts, and themes" },
-      { value: "exit", label: "Exit" },
     ]);
 
-    if (!selected || selected === "exit") return;
+    if (!selected) return;
 
     switch (selected) {
       case "model":
