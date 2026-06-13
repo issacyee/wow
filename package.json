@@ -20,6 +20,7 @@
       "./extensions/git-commit/index.ts",
       "./extensions/command-mappings/index.ts",
       "./extensions/wow-tui/index.ts",
+      "./extensions/codegraph/index.ts",
       "./extensions/webfetch/index.ts",
       "./extensions/btw/index.ts",
       "./extensions/prefix-cache/index.ts"

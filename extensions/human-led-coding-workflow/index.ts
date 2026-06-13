@@ -60,7 +60,19 @@ import {
 import { isSafeCommand } from "../wow/safe.ts";
 
 const MAX_RESTORED_PLAN_CHARS = 12_000;
-const READ_ONLY_ALLOWED_TOOLS = new Set(["read", "grep", "find", "ls", "bash", "webfetch"]);
+const READ_ONLY_ALLOWED_TOOLS = new Set([
+  "read",
+  "grep",
+  "find",
+  "ls",
+  "bash",
+  "webfetch",
+  "codegraph_explore",
+  "codegraph_node",
+  "codegraph_search",
+  "codegraph_callers",
+  "codegraph_status",
+]);
 
 let hasExecutionAdjustment = false;
 let planFromPreviousDiscussion = false;
@@ -414,7 +426,7 @@ export default function humanLedCodingWorkflowExtension(pi: ExtensionAPI): void 
     if (!READ_ONLY_ALLOWED_TOOLS.has(event.toolName)) {
       return {
         block: true,
-        reason: `Human-led workflow: ${event.toolName} is not allowed in ${turnMode} mode. Allowed tools: read, grep, find, ls, bash(read-only), webfetch.`,
+        reason: `Human-led workflow: ${event.toolName} is not allowed in ${turnMode} mode. Allowed tools: read, grep, find, ls, bash(read-only), webfetch, codegraph_*.`,
       };
     }
 

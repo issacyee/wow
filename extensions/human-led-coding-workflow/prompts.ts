@@ -11,7 +11,7 @@ export type WorkflowMode = "discuss" | "plan" | "revise" | "execute";
 
 export const WORKFLOW_CONTEXT_TYPE = "human-led-coding-workflow-context";
 
-const READ_ONLY_TOOLS = "read, grep, find, ls, bash(read-only allowlist), webfetch";
+const READ_ONLY_TOOLS = "codegraph_explore, codegraph_node, codegraph_search, codegraph_callers, codegraph_status, read, grep, find, ls, bash(read-only allowlist), webfetch";
 
 export function buildDiscussPrompt(): string {
   return `[HLCW:DISCUSS]
@@ -21,7 +21,8 @@ Discuss/analyze with the human as decision maker.
 Rules:
 - Current user message is the focus; use prior conversation only as background.
 - Continue an earlier topic only if explicitly referenced; otherwise switch to the new topic.
-- May explore with read, grep, find, ls, webfetch, and read-only bash.
+- Prefer CodeGraph for structural code exploration when an index is available.
+- May explore with codegraph_explore, codegraph_node, codegraph_search, codegraph_callers, codegraph_status, read, grep, find, ls, webfetch, and read-only bash.
 - Do not edit/write files.
 - Do not write an implementation plan unless the user asks with ??.
 - Ask concise questions if key information is missing.`;
@@ -41,7 +42,8 @@ export function buildPlanPrompt(options: PlanPromptOptions = {}): string {
 Write a new reviewable plan. Replace any active plan.
 
 Rules:${sourceInstruction}
-- Explore first when needed: read, grep, find, ls, webfetch, read-only bash.
+- Prefer CodeGraph for structural code exploration when an index is available.
+- Explore first when needed: codegraph_explore, codegraph_node, codegraph_search, codegraph_callers, codegraph_status, read, grep, find, ls, webfetch, read-only bash.
 - Ask concise questions if critical info is missing; do not output a plan yet.
 - Do not edit/write files or start implementation.
 - Recommend one approach only unless human input is required.

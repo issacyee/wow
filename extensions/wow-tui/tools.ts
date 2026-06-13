@@ -18,6 +18,7 @@ import {
   createLsTool,
 } from "@earendil-works/pi-coding-agent";
 import { Container, visibleWidth } from "@earendil-works/pi-tui";
+import { setCodeGraphRenderOptions } from "../codegraph/index.ts";
 import { setWebfetchRenderOptions } from "../webfetch/index.ts";
 import { fitCommand, fitEnd, fitPath, linkPathAdaptive } from "../wow/paths.ts";
 import { AdaptiveToolLine, createFocusRenderCall, focusRenderResult } from "../wow/renderer.ts";
@@ -282,6 +283,34 @@ export function registerFocusToolRendering(pi: ExtensionAPI): void {
       });
     },
     renderResult: emptyResult,
+  });
+
+  setCodeGraphRenderOptions({
+    codegraph_explore: {
+      renderShell: "self",
+      renderCall: createFocusRenderCall("codegraph explore"),
+      renderResult: focusRenderResult,
+    },
+    codegraph_node: {
+      renderShell: "self",
+      renderCall: createFocusRenderCall("codegraph node"),
+      renderResult: focusRenderResult,
+    },
+    codegraph_search: {
+      renderShell: "self",
+      renderCall: createFocusRenderCall("codegraph search"),
+      renderResult: focusRenderResult,
+    },
+    codegraph_callers: {
+      renderShell: "self",
+      renderCall: createFocusRenderCall("codegraph callers"),
+      renderResult: focusRenderResult,
+    },
+    codegraph_status: {
+      renderShell: "self",
+      renderCall: createFocusRenderCall("codegraph status"),
+      renderResult: focusRenderResult,
+    },
   });
 
   setWebfetchRenderOptions({

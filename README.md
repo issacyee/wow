@@ -58,7 +58,7 @@ when a prefix is used.
 | `$ <text>`  | Execute the current active plan with extra constraints         |
 
 - **Human-led control**: ordinary input remains free-form; plan feedback requires `?!`; execution requires `$`
-- **Read-only discussion/planning/revision**: these modes allow `read`, `grep`, `find`, `ls`, safe read-only `bash`, and `webfetch`, while blocking `edit`, `write`, and unsafe commands
+- **Read-only discussion/planning/revision**: these modes allow `codegraph_*`, `read`, `grep`, `find`, `ls`, safe read-only `bash`, and `webfetch`, while blocking `edit`, `write`, and unsafe commands
 - **Reviewable plan structure**: plans include Goals, Background, Key Decisions, Non-goals, Implementation Steps, Acceptance Criteria, Verification, and Risks, ending with `Ready to execute?`
 - **Execution summary**: execution responses are guided to include Summary, Modified Files, and Follow-up Suggestions; commits remain manual
 - **Prefix-cache friendly**: the extension never mutates the system prompt, never switches active tools, filters stale workflow context messages from provider context, and stores state in custom entries outside LLM context
@@ -165,6 +165,32 @@ When the active provider is `deepseek`, Wow refreshes the account balance every
 DeepSeek session cost against the returned balance. Other providers fall back to
 the current session's estimated USD cost.
 
+### CodeGraph — Semantic Code Intelligence
+
+Wraps the optional [CodeGraph](https://github.com/colbymchenry/codegraph) CLI as
+static pi tools, without MCP. Install CodeGraph separately, then initialize each
+project once:
+
+```bash
+npm i -g @colbymchenry/codegraph
+```
+
+```txt
+/codegraph:init
+```
+
+Registered tools: `codegraph_explore`, `codegraph_node`, `codegraph_search`,
+`codegraph_callers`, and `codegraph_status`. Use CodeGraph for structural code
+exploration, symbol relationships, callers, and impact-oriented questions. Tool
+outputs are capped at 32KB in LLM context with oversized full output saved to a
+temp file. CodeGraph tools are allowed during human-led discuss/plan/revise
+exploration modes.
+
+Commands:
+- `/codegraph:init` — create `.codegraph/` and build the local index
+- `/codegraph:sync` — incrementally update the index
+- `/codegraph:status` — show index status
+
 ### Prefix Cache — Reasonix-Style Prompt Stability
 
 Optimizes provider prefix-cache hit rate, especially for DeepSeek/OpenAI-compatible
@@ -242,7 +268,7 @@ import { detectLocale, createFocusRenderCall, shortenPath } from "../wow/index.t
 - Logic extensions own behavior, state, tools, commands, provider hooks, and safety gates.
 - `wow-tui` owns package-level visual composition and singleton TUI resources.
 - Logic extensions should not call `ctx.ui.setFooter()` or `ctx.ui.setEditorComponent()`.
-- Removing `wow-tui` should not break workflow, cache, commit, or webfetch behavior.
+- Removing `wow-tui` should not break workflow, cache, commit, codegraph, or webfetch behavior.
 
 ## Development
 
@@ -297,6 +323,10 @@ wow/
 │   │   ├── tools.ts         # Focus-style built-in tool rendering overrides
 │   │   ├── widgets.ts       # Workflow status/todo presenters
 │   │   └── btw.ts           # BTW custom message renderers
+│   ├── codegraph/           # CodeGraph CLI tools and commands
+│   │   ├── index.ts         # Static pi tools, commands, auto-sync debounce
+│   │   ├── runner.ts        # Safe spawn-based CodeGraph CLI runner
+│   │   └── truncate.ts      # 32KB LLM-context output truncation
 │   ├── webfetch/            # Fetch web content and convert to markdown/text/html
 │   │   └── index.ts         # webfetch tool using native fetch + node-html-markdown conversion
 │   ├── btw/                 # /btw:* isolated side-channel Q&A threads

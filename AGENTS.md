@@ -40,6 +40,10 @@ wow/
 │   │   ├── tools.ts         # Focus-style built-in tool rendering overrides
 │   │   ├── widgets.ts       # Workflow status/todo presenters
 │   │   └── btw.ts           # BTW custom message renderers
+│   ├── codegraph/           # CodeGraph CLI semantic code exploration tools
+│   │   ├── index.ts         # Static pi tools, commands, auto-sync debounce
+│   │   ├── runner.ts        # Safe spawn-based CLI runner
+│   │   └── truncate.ts      # 32KB LLM-context output truncation
 │   ├── webfetch/            # Fetch web content and convert to markdown/text/html
 │   │   └── index.ts         # webfetch tool using native fetch + node-html-markdown conversion
 │   ├── btw/                 # /btw:* isolated side-channel Q&A threads
@@ -117,7 +121,7 @@ A human-led coding workflow triggered by `?`/`??`/`?!`/`$` input prefixes. Norma
 - `EXECUTE_MARKER` (`"Ready to execute?"`) is the bridge between planning/revision and execution. Plans are captured from reverse-scanned assistant messages at `agent_end`.
 - Plans use Goals / Background / Key Decisions / Non-goals / Implementation Steps / Acceptance Criteria / Verification / Risks.
 - `[DONE:n]` markers in AI responses are tracked via `markCompletedSteps()` to update execution progress state.
-- Discuss/plan/revise modes allow `read`, `grep`, `find`, `ls`, `webfetch`, and safe read-only `bash`; they block `edit`, `write`, unsafe bash, and unrelated tools.
+- Discuss/plan/revise modes allow CodeGraph query tools, `read`, `grep`, `find`, `ls`, `webfetch`, and safe read-only `bash`; they block `edit`, `write`, unsafe bash, and unrelated tools.
 - Prefix-cache safety is a hard requirement: the extension never mutates the system prompt, never switches active tools, registers no dynamic tools, filters stale workflow context messages from provider context, and persists state via custom entries outside LLM context.
 - State is managed by `state.ts` and restored from `human-led-coding-workflow` custom entries on `session_start`.
 - TUI presentation for editor colors, status, and todo widgets is handled by `wow-tui`.
@@ -134,6 +138,7 @@ Responsibilities:
 - Applies workflow prefix border colors and Chinese IME prefix conversion.
 - Presents workflow status and todo widgets by subscribing to workflow state.
 - Re-registers built-in tools with focus-style minimal rendering.
+- Installs focus-style rendering options for custom tools such as webfetch and CodeGraph.
 - Registers custom message renderers such as BTW side-channel message rendering.
 
 Removing `./extensions/wow-tui/index.ts` from `package.json` disables these package visuals while leaving logic extensions functional.
@@ -145,6 +150,14 @@ Standalone LLM call (isolated from main session context) using a balanced Conven
 ### command-mappings
 
 Declarative array (`COMMAND_MAPPINGS`) of `{ name, description, handler }` objects. Currently provides `/exit` as alias for `/quit`. Add new mappings by appending entries.
+
+### codegraph
+
+Static pi tools and commands wrapping the optional CodeGraph CLI for semantic code exploration without MCP. CodeGraph remains a soft dependency; users install it separately with `npm i -g @colbymchenry/codegraph`, then initialize each project with `/codegraph:init` or `codegraph init`.
+
+Tools: `codegraph_explore`, `codegraph_node`, `codegraph_search`, `codegraph_callers`, and `codegraph_status`. Tools are registered unconditionally for prefix-cache stability, use `spawn()` with args (`codegraph.cmd` on Windows), auto-sync with a short debounce when `.codegraph/` exists, and truncate LLM-visible output to 32KB while saving oversized full output to a temp file.
+
+Commands: `/codegraph:init`, `/codegraph:sync`, and `/codegraph:status`. Logic remains UI-independent; TUI rendering is installed from `wow-tui/tools.ts` via `setCodeGraphRenderOptions()`.
 
 ### btw
 
