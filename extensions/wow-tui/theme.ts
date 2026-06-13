@@ -4,13 +4,13 @@
  * Pi theme JSON does not allow extension-specific keys in `colors`, but `vars`
  * intentionally accepts arbitrary reusable color names. Wow reads optional
  * `vars["wow.<token>"]` values from the active theme JSON and falls back to
- * the built-in semantic palette when absent or invalid.
+ * pi's own semantic theme colors when absent or invalid.
  */
 
 import { readFileSync, statSync } from "node:fs";
 import {
   colorValueToFn,
-  DEFAULT_WOW_COLOR_VALUES,
+  DEFAULT_WOW_THEME_FALLBACKS,
   type ColorFn,
   type WowColorValue,
   type WowThemeToken,
@@ -73,7 +73,7 @@ function loadWowVars(theme: any): Record<string, WowColorValue> {
     for (const [key, value] of Object.entries(vars)) {
       if (!key.startsWith(WOW_VAR_PREFIX)) continue;
       const token = key.slice(WOW_VAR_PREFIX.length);
-      if (!Object.prototype.hasOwnProperty.call(DEFAULT_WOW_COLOR_VALUES, token)) continue;
+      if (!Object.prototype.hasOwnProperty.call(DEFAULT_WOW_THEME_FALLBACKS, token)) continue;
 
       const resolved = resolveVarValue(vars, value);
       if (resolved !== undefined) result[token] = resolved;
@@ -86,16 +86,20 @@ function loadWowVars(theme: any): Record<string, WowColorValue> {
   return result;
 }
 
-export function wowColorValue(theme: any, token: WowThemeToken): WowColorValue {
-  return loadWowVars(theme)[token] ?? DEFAULT_WOW_COLOR_VALUES[token];
+export function wowColorValue(theme: any, token: WowThemeToken): WowColorValue | undefined {
+  return loadWowVars(theme)[token];
 }
 
 export function wowColor(theme: any, token: WowThemeToken): ColorFn {
-  return colorValueToFn(wowColorValue(theme, token));
+  const value = wowColorValue(theme, token);
+  if (value !== undefined) return colorValueToFn(value);
+
+  const fallback = DEFAULT_WOW_THEME_FALLBACKS[token];
+  return (text: string) => theme?.fg ? theme.fg(fallback.pi, text) : text;
 }
 
 export function wowFg(theme: any, token: WowThemeToken, text: string): string {
   return wowColor(theme, token)(text);
 }
 
-export { DEFAULT_WOW_COLOR_VALUES, type WowThemeToken } from "./palette.ts";
+export { DEFAULT_WOW_THEME_FALLBACKS, type WowThemeToken } from "./palette.ts";

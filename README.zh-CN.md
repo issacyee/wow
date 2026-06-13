@@ -104,33 +104,29 @@ BTW 使用独立 LLM 调用，并把 topic state 作为 custom entries 持久化
 
 自定义工具可以复用 `wow/renderer.ts` 中的共享 dim rendering 工具（`createFocusRenderCall`、`focusRenderResult`）。
 
-#### Wow Theme Variables
+#### Viego Theme and Wow Theme Variables
+
+Wow 内置 `Viego` 主题，灵感来自《英雄联盟》中的 Viego, The Ruined King。
+当 `wow-tui` 启动且当前 pi theme 是内置 `dark` 或 `light` 时，Wow 会在运行时把主题软切换为 `Viego`，但不会写入用户 settings。用户自定义主题不会被替换。
 
 Wow 专属颜色通过 pi theme 的可选 `vars` 条目定义，不会写入 pi 封闭的
-`colors` schema，因此 theme 文件仍然是合法的 pi theme。未定义或无效的值会回退到 Wow 内置 palette。
+`colors` schema，因此 theme 文件仍然是合法的 pi theme。未定义或无效的值会回退到当前 pi theme 的语义颜色（`muted`、`warning`、`accent`、`success`、`dim`、`error`），所以 Wow 默认会跟随当前 pi 主题。
 
 ```json
 {
   "vars": {
-    "wow.workflow.discussBorder": "#7a5ea0",
-    "wow.workflow.planBorder": "#f5a742",
-    "wow.workflow.reviseBorder": "#c9a84c",
     "wow.workflow.executeBorder": "#5c9cf5",
-    "wow.footer.cwd": "#c9a84c",
-    "wow.footer.branch": "#7a5ea0",
-    "wow.footer.model": "#1faf7a",
-    "wow.footer.tokens": "#17dae7",
-    "wow.footer.cache": "#1faf7a",
-    "wow.footer.cost": "#c9a84c",
-    "wow.footer.status": "#666666",
-    "wow.footer.contextOk": "#1faf7a",
-    "wow.footer.contextWarn": "#c9a84c",
-    "wow.footer.contextDanger": "#e8634f"
+    "wow.workflow.statusExec": "#5c9cf5",
+    "wow.footer.model": "#1faf7a"
   }
 }
 ```
 
-取值格式与 pi theme vars 相同：`"#RRGGBB"`、`0`-`255`、`""` 或另一个 var 名称。
+取值格式与 pi theme vars 相同：`"#RRGGBB"`、`0`-`255`、`""` 或另一个 var 名称。支持的 tokens：
+
+- Workflow borders：`wow.workflow.discussBorder`、`wow.workflow.planBorder`、`wow.workflow.reviseBorder`、`wow.workflow.executeBorder`
+- Workflow status：`wow.workflow.statusDiscuss`、`wow.workflow.statusPlan`、`wow.workflow.statusRevise`、`wow.workflow.statusExec`、`wow.workflow.statusDone`、`wow.workflow.statusReady`
+- Footer：`wow.footer.cwd`、`wow.footer.branch`、`wow.footer.model`、`wow.footer.tokens`、`wow.footer.cache`、`wow.footer.cost`、`wow.footer.status`、`wow.footer.contextOk`、`wow.footer.contextWarn`、`wow.footer.contextDanger`
 
 ### Prefix Cache — Reasonix-Style Prompt Stability
 

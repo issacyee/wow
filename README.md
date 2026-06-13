@@ -129,35 +129,35 @@ It owns package-level singleton TUI resources:
 Custom tools can reuse the same dim rendering via shared utilities from `wow/renderer.ts`
 (`createFocusRenderCall`, `focusRenderResult`).
 
-#### Wow Theme Variables
+#### Viego Theme and Wow Theme Variables
+
+Wow includes a built-in `Viego` theme inspired by League of Legends' Viego, The
+Ruined King. When `wow-tui` starts and the active pi theme is the built-in
+`dark` or `light`, Wow runtime-applies `Viego` as a soft default without writing
+it to user settings. Custom themes are left unchanged.
 
 Wow-specific colors are optional pi theme `vars` entries. They are not added to
 pi's closed `colors` schema, so theme files remain valid pi themes. Undefined or
-invalid values fall back to Wow's built-in palette.
+invalid values fall back to pi's current semantic theme colors (`muted`,
+`warning`, `accent`, `success`, `dim`, `error`) so Wow follows the active pi
+theme by default.
 
 ```json
 {
   "vars": {
-    "wow.workflow.discussBorder": "#7a5ea0",
-    "wow.workflow.planBorder": "#f5a742",
-    "wow.workflow.reviseBorder": "#c9a84c",
     "wow.workflow.executeBorder": "#5c9cf5",
-    "wow.footer.cwd": "#c9a84c",
-    "wow.footer.branch": "#7a5ea0",
-    "wow.footer.model": "#1faf7a",
-    "wow.footer.tokens": "#17dae7",
-    "wow.footer.cache": "#1faf7a",
-    "wow.footer.cost": "#c9a84c",
-    "wow.footer.status": "#666666",
-    "wow.footer.contextOk": "#1faf7a",
-    "wow.footer.contextWarn": "#c9a84c",
-    "wow.footer.contextDanger": "#e8634f"
+    "wow.workflow.statusExec": "#5c9cf5",
+    "wow.footer.model": "#1faf7a"
   }
 }
 ```
 
 Values use the same formats as pi theme vars: `"#RRGGBB"`, `0`-`255`, `""`, or
-another var name.
+another var name. Supported tokens:
+
+- Workflow borders: `wow.workflow.discussBorder`, `wow.workflow.planBorder`, `wow.workflow.reviseBorder`, `wow.workflow.executeBorder`
+- Workflow status: `wow.workflow.statusDiscuss`, `wow.workflow.statusPlan`, `wow.workflow.statusRevise`, `wow.workflow.statusExec`, `wow.workflow.statusDone`, `wow.workflow.statusReady`
+- Footer: `wow.footer.cwd`, `wow.footer.branch`, `wow.footer.model`, `wow.footer.tokens`, `wow.footer.cache`, `wow.footer.cost`, `wow.footer.status`, `wow.footer.contextOk`, `wow.footer.contextWarn`, `wow.footer.contextDanger`
 
 ### Prefix Cache — Reasonix-Style Prompt Stability
 

@@ -7,6 +7,7 @@ import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import type { TodoItem } from "../human-led-coding-workflow/plan.ts";
 import { getWorkflowSnapshot, WORKFLOW_STATE_TYPE } from "../human-led-coding-workflow/state.ts";
 import { AdaptiveLines } from "../wow/renderer.ts";
+import { wowColor } from "./theme.ts";
 
 const MAX_TODO_WIDGET_LINES = 10;
 
@@ -65,18 +66,18 @@ export function updateWorkflowWidgets(ctx: ExtensionContext): void {
     (snapshot.executionActive || snapshot.turnMode === "execute" || (snapshot.executed && allTodosCompleted));
 
   if (snapshot.turnMode === "discuss") {
-    ctx.ui.setStatus(WORKFLOW_STATE_TYPE, ctx.ui.theme.fg("muted", "◇ discuss"));
+    ctx.ui.setStatus(WORKFLOW_STATE_TYPE, wowColor(ctx.ui.theme, "workflow.statusDiscuss")("◇ discuss"));
   } else if (snapshot.turnMode === "plan") {
-    ctx.ui.setStatus(WORKFLOW_STATE_TYPE, ctx.ui.theme.fg("warning", "◇ plan"));
+    ctx.ui.setStatus(WORKFLOW_STATE_TYPE, wowColor(ctx.ui.theme, "workflow.statusPlan")("◇ plan"));
   } else if (snapshot.turnMode === "revise") {
-    ctx.ui.setStatus(WORKFLOW_STATE_TYPE, ctx.ui.theme.fg("warning", "◇ revise"));
+    ctx.ui.setStatus(WORKFLOW_STATE_TYPE, wowColor(ctx.ui.theme, "workflow.statusRevise")("◇ revise"));
   } else if (showExecutionTodos) {
     const completed = snapshot.todoItems.filter((item) => item.completed).length;
     const label = snapshot.executed && allTodosCompleted ? "done" : "exec";
-    const color = label === "done" ? "success" : "accent";
-    ctx.ui.setStatus(WORKFLOW_STATE_TYPE, ctx.ui.theme.fg(color, `◇ ${label} ${completed}/${snapshot.todoItems.length}`));
+    const token = label === "done" ? "workflow.statusDone" : "workflow.statusExec";
+    ctx.ui.setStatus(WORKFLOW_STATE_TYPE, wowColor(ctx.ui.theme, token)(`◇ ${label} ${completed}/${snapshot.todoItems.length}`));
   } else if (snapshot.activePlan) {
-    ctx.ui.setStatus(WORKFLOW_STATE_TYPE, ctx.ui.theme.fg("muted", "◇ plan ready"));
+    ctx.ui.setStatus(WORKFLOW_STATE_TYPE, wowColor(ctx.ui.theme, "workflow.statusReady")("◇ plan ready"));
   } else {
     ctx.ui.setStatus(WORKFLOW_STATE_TYPE, undefined);
   }

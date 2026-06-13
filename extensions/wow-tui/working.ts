@@ -68,14 +68,9 @@ export function createWorkingTimerController(pi: ExtensionAPI): WorkingTimerCont
   let activeThinking: ActiveThinkingState | undefined;
   let completedThinkingDurations: CompletedThinkingDuration[] = [];
   let intervalId: ReturnType<typeof setInterval> | undefined;
-  let frameIndex = 0;
   let generation = 0;
   const entryIdsByMessage = new WeakMap<AssistantMessage, string>();
   const pendingDurations: PendingDuration[] = [];
-
-  function getFrame(): string {
-    return SPINNER_FRAMES[frameIndex % SPINNER_FRAMES.length] ?? "";
-  }
 
   function indexAssistantMessagesFromBranch(): void {
     if (!ctx) return;
@@ -178,7 +173,7 @@ export function createWorkingTimerController(pi: ExtensionAPI): WorkingTimerCont
   function updateActiveThinking(timestamp = nowMs()): void {
     if (!activeThinking || !latestAssistantMessage) return;
 
-    const label = `${getFrame()} Thinking ${formatDuration(timestamp - activeThinking.startedAt)}`;
+    const label = `Thinking ${formatDuration(timestamp - activeThinking.startedAt)}`;
     const labelChanged = label !== activeThinking.label;
     activeThinking.label = label;
     setThinkingLabel(latestAssistantMessage, activeThinking.contentIndex, label);
@@ -200,8 +195,6 @@ export function createWorkingTimerController(pi: ExtensionAPI): WorkingTimerCont
     if (activeThinking) {
       updateActiveThinking(timestamp);
     }
-
-    frameIndex = (frameIndex + 1) % SPINNER_FRAMES.length;
   }
 
   function startRefreshLoop(): void {
@@ -238,7 +231,6 @@ export function createWorkingTimerController(pi: ExtensionAPI): WorkingTimerCont
       contentIndex,
       startedAt: timestamp,
     };
-    frameIndex = 0;
     startRefreshLoop();
     updateActiveThinking(timestamp);
   }
@@ -269,7 +261,6 @@ export function createWorkingTimerController(pi: ExtensionAPI): WorkingTimerCont
     latestAssistantMessage = message;
     activeThinking = undefined;
     completedThinkingDurations = [];
-    frameIndex = 0;
   }
 
   pi.on("agent_start", async () => {

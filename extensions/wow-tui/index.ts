@@ -6,7 +6,7 @@
  * and presents that state.
  */
 
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { subscribeWorkflowState, WORKFLOW_STATE_TYPE } from "../human-led-coding-workflow/state.ts";
 import { installBtwAskTimer, registerBtwRendering } from "./btw.ts";
 import { WOW_TUI_CONFIG } from "./config.ts";
@@ -16,6 +16,20 @@ import { installFooter } from "./footer.ts";
 import { registerFocusToolRendering } from "./tools.ts";
 import { updateWorkflowWidgets } from "./widgets.ts";
 import { createWorkingTimerController } from "./working.ts";
+
+const VIEGO_THEME_NAME = "Viego";
+
+function applyWowDefaultTheme(ctx: ExtensionContext): void {
+  if (!ctx.hasUI) return;
+
+  const currentThemeName = ctx.ui.theme.name;
+  if (currentThemeName !== "dark" && currentThemeName !== "light") return;
+
+  const viego = ctx.ui.getTheme(VIEGO_THEME_NAME);
+  if (!viego) return;
+
+  ctx.ui.setTheme(viego);
+}
 
 export default function wowTuiExtension(pi: ExtensionAPI): void {
   registerConfigUI(pi);
@@ -42,6 +56,8 @@ export default function wowTuiExtension(pi: ExtensionAPI): void {
     cleanupBtwAskTimer = undefined;
 
     if (!ctx.hasUI) return;
+
+    applyWowDefaultTheme(ctx);
 
     if (WOW_TUI_CONFIG.workingTimers) {
       workingTimerController?.startSession(ctx);

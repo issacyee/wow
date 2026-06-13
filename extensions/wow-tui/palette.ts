@@ -2,27 +2,39 @@
  * Shared Wow TUI color palette.
  */
 
+import type { ThemeColor } from "@earendil-works/pi-coding-agent";
+
 export type ColorFn = (s: string) => string;
 export type WowColorValue = string | number;
 
-export const DEFAULT_WOW_COLOR_VALUES = {
-  "workflow.discussBorder": "#7a5ea0",
-  "workflow.planBorder": "#f5a742",
-  "workflow.reviseBorder": "#c9a84c",
-  "workflow.executeBorder": "#5c9cf5",
-  "footer.cwd": "#c9a84c",
-  "footer.branch": "#7a5ea0",
-  "footer.model": "#1faf7a",
-  "footer.tokens": "#17dae7",
-  "footer.cache": "#1faf7a",
-  "footer.cost": "#c9a84c",
-  "footer.status": "#666666",
-  "footer.contextOk": "#1faf7a",
-  "footer.contextWarn": "#c9a84c",
-  "footer.contextDanger": "#e8634f",
-} as const satisfies Record<string, WowColorValue>;
+export interface WowThemeFallback {
+  pi: ThemeColor;
+}
 
-export type WowThemeToken = keyof typeof DEFAULT_WOW_COLOR_VALUES;
+export const DEFAULT_WOW_THEME_FALLBACKS = {
+  "workflow.discussBorder": { pi: "muted" },
+  "workflow.planBorder": { pi: "warning" },
+  "workflow.reviseBorder": { pi: "warning" },
+  "workflow.executeBorder": { pi: "accent" },
+  "workflow.statusDiscuss": { pi: "muted" },
+  "workflow.statusPlan": { pi: "warning" },
+  "workflow.statusRevise": { pi: "warning" },
+  "workflow.statusExec": { pi: "accent" },
+  "workflow.statusDone": { pi: "success" },
+  "workflow.statusReady": { pi: "muted" },
+  "footer.cwd": { pi: "muted" },
+  "footer.branch": { pi: "muted" },
+  "footer.model": { pi: "success" },
+  "footer.tokens": { pi: "muted" },
+  "footer.cache": { pi: "success" },
+  "footer.cost": { pi: "muted" },
+  "footer.status": { pi: "dim" },
+  "footer.contextOk": { pi: "success" },
+  "footer.contextWarn": { pi: "warning" },
+  "footer.contextDanger": { pi: "error" },
+} as const satisfies Record<string, WowThemeFallback>;
+
+export type WowThemeToken = keyof typeof DEFAULT_WOW_THEME_FALLBACKS;
 
 function hexToRgb(hex: string): { r: number; g: number; b: number } | undefined {
   const match = hex.match(/^#([0-9a-fA-F]{6})$/);
@@ -52,12 +64,3 @@ export function colorValueToFn(value: WowColorValue): ColorFn {
   if (!rgbValue) return (s: string) => s;
   return rgb(rgbValue.r, rgbValue.g, rgbValue.b);
 }
-
-export const GREEN = colorValueToFn(DEFAULT_WOW_COLOR_VALUES["footer.model"]);
-export const YELLOW = colorValueToFn(DEFAULT_WOW_COLOR_VALUES["footer.cost"]);
-export const RED = colorValueToFn(DEFAULT_WOW_COLOR_VALUES["footer.contextDanger"]);
-export const BLUE = colorValueToFn(DEFAULT_WOW_COLOR_VALUES["footer.tokens"]);
-export const PURPLE = colorValueToFn(DEFAULT_WOW_COLOR_VALUES["workflow.discussBorder"]);
-export const ORANGE = colorValueToFn(DEFAULT_WOW_COLOR_VALUES["workflow.planBorder"]);
-export const EXECUTE_BLUE = colorValueToFn(DEFAULT_WOW_COLOR_VALUES["workflow.executeBorder"]);
-export const DIM = colorValueToFn(DEFAULT_WOW_COLOR_VALUES["footer.status"]);
