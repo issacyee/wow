@@ -9,6 +9,7 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 import { hyperlink, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { shortenPath } from "../wow/paths.ts";
 import { collectCacheStats } from "../prefix-cache/stats.ts";
+import { createBillingController } from "./billing.ts";
 import { wowColor } from "./theme.ts";
 
 const BAR_WIDTH = 10;
@@ -35,6 +36,11 @@ function fmt(n: number): string {
   return n < 1000 ? `${n}` : `${(n / 1000).toFixed(1)}k`;
 }
 
+function renderTokenDisplay(theme: any, input: number, output: number, hitRate: number | null): string {
+  const hitRateDisplay = hitRate === null ? "" : `/${Math.round(hitRate * 100)}%`;
+  return wowColor(theme, "footer.tokens")(` ↑${fmt(input)}${hitRateDisplay} ↓${fmt(output)}`);
+}
+
 function fmtContextWindow(n: number): string {
   if (n >= 1_000_000) return `${Math.round(n / 1_000_000)}M`;
   if (n >= 1000) return `${Math.round(n / 1000)}k`;
@@ -52,9 +58,13 @@ export function installFooter(pi: ExtensionAPI, ctx: ExtensionContext): void {
 
   ctx.ui.setFooter((tui, theme, footerData) => {
     const unsubBranch = footerData.onBranchChange(() => tui.requestRender());
+    const billing = createBillingController(ctx, () => tui.requestRender());
 
     return {
-      dispose: unsubBranch,
+      dispose() {
+        unsubBranch();
+        billing.dispose();
+      },
       invalidate() { },
       render(width: number): string[] {
         const cwdPath = ctx.cwd ?? process.cwd();
@@ -86,11 +96,8 @@ export function installFooter(pi: ExtensionAPI, ctx: ExtensionContext): void {
         const pctDisplay = renderContextPercent(theme, usage?.percent ?? null, contextWindow);
 
         const cacheStats = collectCacheStats(ctx.sessionManager.getBranch());
-        const tokenDisplay = wowColor(theme, "footer.tokens")(` ↑${fmt(cacheStats.input)} ↓${fmt(cacheStats.output)}`);
-        const cacheDisplay = cacheStats.hitRate === null
-          ? ""
-          : wowColor(theme, "footer.cache")(` ⚡${Math.round(cacheStats.hitRate * 100)}%`);
-        const costDisplay = wowColor(theme, "footer.cost")(` $${cacheStats.cost.toFixed(3)}`);
+        const tokenDisplay = renderTokenDisplay(theme, cacheStats.input, cacheStats.output, cacheStats.hitRate);
+        const costDisplay = wowColor(theme, "footer.cost")(` ${billing.getDisplay(cacheStats.cost, ctx.model)}`);
 
         const statuses = footerData.getExtensionStatuses();
         const statusTexts: string[] = [];
@@ -99,7 +106,7 @@ export function installFooter(pi: ExtensionAPI, ctx: ExtensionContext): void {
         }
         const statusDisplay = statusTexts.length > 0 ? wowColor(theme, "footer.status")(statusTexts.join(" ")) : "";
 
-        const line2Left = barDisplay + pctDisplay + tokenDisplay + cacheDisplay + costDisplay;
+        const line2Left = barDisplay + pctDisplay + tokenDisplay + costDisplay;
         const line2Right = statusDisplay;
         const line2Pad = " ".repeat(Math.max(1, width - visibleWidth(line2Left) - visibleWidth(line2Right)));
         const line2 = truncateToWidth(line2Left + line2Pad + line2Right, width);

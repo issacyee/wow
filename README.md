@@ -119,7 +119,7 @@ from `package.json` disables these visuals while leaving workflow/cache/tool log
 
 It owns package-level singleton TUI resources:
 
-- **Footer compositor**: custom two-line footer with clickable CWD, git branch, model/thinking level, context usage bar, token/cache/cost stats, and extension statuses
+- **Footer compositor**: custom two-line footer with clickable CWD, git branch, model/thinking level, context usage bar, token/cache/cost/billing stats, and extension statuses
 - **Composite editor**: `𝝅` top-border label, workflow prefix border colors, and Chinese IME full-width prefix conversion (`？` `！` `￥` → `?` `!` `$`)
 - **Workflow presenter**: status indicator and todo widget based on workflow state
 - **BTW message rendering**: custom rendering for `/btw:*` side-channel messages
@@ -157,7 +157,13 @@ another var name. Supported tokens:
 
 - Workflow borders: `wow.workflow.discussBorder`, `wow.workflow.planBorder`, `wow.workflow.reviseBorder`, `wow.workflow.executeBorder`
 - Workflow status: `wow.workflow.statusDiscuss`, `wow.workflow.statusPlan`, `wow.workflow.statusRevise`, `wow.workflow.statusExec`, `wow.workflow.statusDone`, `wow.workflow.statusReady`
-- Footer: `wow.footer.cwd`, `wow.footer.branch`, `wow.footer.model`, `wow.footer.tokens`, `wow.footer.cache`, `wow.footer.cost`, `wow.footer.status`, `wow.footer.contextOk`, `wow.footer.contextWarn`, `wow.footer.contextDanger`
+- Footer: `wow.footer.cwd`, `wow.footer.branch`, `wow.footer.model`, `wow.footer.tokens`, `wow.footer.cost`, `wow.footer.status`, `wow.footer.contextOk`, `wow.footer.contextWarn`, `wow.footer.contextDanger`
+
+Optional billing display currently supports official DeepSeek API accounts.
+When the active provider is `deepseek`, Wow refreshes the account balance every
+60 seconds via DeepSeek's `/user/balance` endpoint and displays the estimated
+DeepSeek session cost against the returned balance. Other providers fall back to
+the current session's estimated USD cost.
 
 ### Prefix Cache — Reasonix-Style Prompt Stability
 

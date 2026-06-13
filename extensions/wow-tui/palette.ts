@@ -26,7 +26,6 @@ export const DEFAULT_WOW_THEME_FALLBACKS = {
   "footer.branch": { pi: "muted" },
   "footer.model": { pi: "success" },
   "footer.tokens": { pi: "muted" },
-  "footer.cache": { pi: "success" },
   "footer.cost": { pi: "muted" },
   "footer.status": { pi: "dim" },
   "footer.contextOk": { pi: "success" },

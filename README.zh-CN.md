@@ -95,7 +95,7 @@ BTW 使用独立 LLM 调用，并把 topic state 作为 custom entries 持久化
 
 它拥有包级别的 TUI 单例资源：
 
-- **Footer compositor**：自定义两行 footer，包含可点击 CWD、git branch、model/thinking level、context usage bar、token/cache/cost stats 和 extension statuses
+- **Footer compositor**：自定义两行 footer，包含可点击 CWD、git branch、model/thinking level、context usage bar、token/cache/cost/billing stats 和 extension statuses
 - **Composite editor**：`𝝅` 顶部边框 label、workflow prefix 边框颜色、中文 IME 全角前缀转换（`？` `！` `￥` → `?` `!` `$`）
 - **Workflow presenter**：基于 workflow state 展示 status indicator 和 todo widget
 - **BTW message rendering**：为 `/btw:*` side-channel messages 提供自定义渲染
@@ -126,7 +126,11 @@ Wow 专属颜色通过 pi theme 的可选 `vars` 条目定义，不会写入 pi 
 
 - Workflow borders：`wow.workflow.discussBorder`、`wow.workflow.planBorder`、`wow.workflow.reviseBorder`、`wow.workflow.executeBorder`
 - Workflow status：`wow.workflow.statusDiscuss`、`wow.workflow.statusPlan`、`wow.workflow.statusRevise`、`wow.workflow.statusExec`、`wow.workflow.statusDone`、`wow.workflow.statusReady`
-- Footer：`wow.footer.cwd`、`wow.footer.branch`、`wow.footer.model`、`wow.footer.tokens`、`wow.footer.cache`、`wow.footer.cost`、`wow.footer.status`、`wow.footer.contextOk`、`wow.footer.contextWarn`、`wow.footer.contextDanger`
+- Footer：`wow.footer.cwd`、`wow.footer.branch`、`wow.footer.model`、`wow.footer.tokens`、`wow.footer.cost`、`wow.footer.status`、`wow.footer.contextOk`、`wow.footer.contextWarn`、`wow.footer.contextDanger`
+
+可选 billing 显示目前支持 DeepSeek 官方 API 账户。当 active provider 是 `deepseek` 时，
+Wow 每 60 秒通过 DeepSeek `/user/balance` endpoint 刷新账户余额，并显示当前 session 中
+DeepSeek 估算花费 / 返回余额。其他 provider 会回退为当前 session 的 USD 估算花费。
 
 ### Prefix Cache — Reasonix-Style Prompt Stability
 
