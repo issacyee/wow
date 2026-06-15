@@ -135,7 +135,8 @@ DeepSeek 估算花费 / 返回余额。其他 provider 会回退为当前 sessio
 ### CodeGraph — Semantic Code Intelligence
 
 将可选的 [CodeGraph](https://github.com/colbymchenry/codegraph) CLI 封装为静态 pi tools，
-不使用 MCP。先单独安装 CodeGraph，然后在每个项目中初始化一次：
+不使用 MCP。运行 `/codegraph:init` 在每个项目中初始化一次。如果尚未安装 CodeGraph CLI，
+交互模式会询问是否先全局安装：
 
 ```bash
 npm i -g @colbymchenry/codegraph
@@ -153,7 +154,12 @@ human-led discuss/plan/revise 探索模式中使用。
 Commands：
 - `/codegraph:init` — 创建 `.codegraph/` 并构建本地索引
 - `/codegraph:sync` — 增量更新索引
-- `/codegraph:status` — 查看索引状态
+- `/codegraph:reindex` — 使用 `codegraph index -f` 强制重建当前项目索引
+- `/codegraph:status` — 查看索引状态；当索引由旧引擎构建时会建议 `/codegraph:reindex`
+- `/codegraph:update` — 经确认后显式更新全局 CodeGraph CLI
+
+不需要始终保持 CodeGraph 最新版。除非需要新功能或 bug fix，否则优先使用稳定的已安装版本。
+当 `/codegraph:status` 提示项目索引由旧引擎构建时，使用 `/codegraph:reindex` 重建索引即可。
 
 ### Prefix Cache — Reasonix-Style Prompt Stability
 

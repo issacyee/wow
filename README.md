@@ -168,8 +168,9 @@ the current session's estimated USD cost.
 ### CodeGraph — Semantic Code Intelligence
 
 Wraps the optional [CodeGraph](https://github.com/colbymchenry/codegraph) CLI as
-static pi tools, without MCP. Install CodeGraph separately, then initialize each
-project once:
+static pi tools, without MCP. Run `/codegraph:init` to initialize each project
+once. If the CodeGraph CLI is not installed, interactive mode asks whether to
+install it globally first:
 
 ```bash
 npm i -g @colbymchenry/codegraph
@@ -189,7 +190,13 @@ exploration modes.
 Commands:
 - `/codegraph:init` — create `.codegraph/` and build the local index
 - `/codegraph:sync` — incrementally update the index
-- `/codegraph:status` — show index status
+- `/codegraph:reindex` — force rebuild the current project's index with `codegraph index -f`
+- `/codegraph:status` — show index status and suggest `/codegraph:reindex` when the index was built by an older engine
+- `/codegraph:update` — explicitly update the global CodeGraph CLI after confirmation
+
+You do not need to keep CodeGraph updated at all times. Prefer the stable installed
+version unless you need a newer feature or bug fix. Use `/codegraph:reindex` when
+`/codegraph:status` reports that the project index was built by an older engine.
 
 ### Prefix Cache — Reasonix-Style Prompt Stability
 

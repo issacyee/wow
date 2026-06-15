@@ -10,7 +10,16 @@ import { join } from "node:path";
 
 import { defineTool, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { StringEnum, Type } from "@earendil-works/pi-ai";
-import { formatCommandResult, runCodeGraph, type CodeGraphCommandResult } from "./runner.ts";
+import {
+  CODEGRAPH_INSTALL_COMMAND,
+  CODEGRAPH_UPDATE_COMMAND,
+  formatCommandResult,
+  installCodeGraphCli,
+  runCodeGraph,
+  runNpmCommand,
+  updateCodeGraphCli,
+  type CodeGraphCommandResult,
+} from "./runner.ts";
 import { truncateCodeGraphOutput } from "./truncate.ts";
 
 const AUTO_SYNC_INTERVAL_MS = 5_000;
@@ -21,6 +30,7 @@ const CODEGRAPH_RENDER_OPTIONS_KEY = Symbol.for("wow.codegraph.renderOptions");
 const lastSyncByRoot = new Map<string, number>();
 
 type RenderOptionsMap = Record<string, Record<string, any>>;
+type NotifyLevel = "info" | "warning" | "error";
 
 function getCodeGraphRenderOptions(): RenderOptionsMap {
   return (globalThis as any)[CODEGRAPH_RENDER_OPTIONS_KEY] ?? {};
@@ -52,6 +62,91 @@ function indexMissingText(): string {
     "CodeGraph index not found for this project.",
     "Initialize it with /codegraph:init or run: codegraph init",
   ].join("\n");
+}
+
+function notify(ctx: any, text: string, level: NotifyLevel = "info"): void {
+  if (ctx.hasUI) {
+    ctx.ui.notify(text, level);
+  } else {
+    console.log(text);
+  }
+}
+
+function clippedCommandResult(result: CodeGraphCommandResult, maxChars: number): string {
+  return formatCommandResult(result).slice(0, maxChars);
+}
+
+function withReindexTip(text: string): string {
+  if (!/(earlier version|re-?index|index -f)/iu.test(text)) return text;
+  if (text.includes("/codegraph:reindex")) return text;
+  return `${text}\n\nTip: run /codegraph:reindex to rebuild this project's index.`;
+}
+
+async function isCodeGraphInstalled(ctx: { cwd: string; signal?: AbortSignal }): Promise<boolean> {
+  const result = await runCodeGraph(["version"], { cwd: ctx.cwd, timeoutSeconds: 30, signal: ctx.signal });
+  return !result.missing && result.exitCode === 0;
+}
+
+async function ensureCodeGraphInstalled(ctx: any): Promise<boolean> {
+  if (await isCodeGraphInstalled(ctx)) return true;
+
+  if (!ctx.hasUI) {
+    notify(
+      ctx,
+      [
+        "CodeGraph CLI is not installed.",
+        `Install it with: ${CODEGRAPH_INSTALL_COMMAND}`,
+        "Then rerun the CodeGraph command.",
+      ].join("\n"),
+      "error",
+    );
+    return false;
+  }
+
+  const ok = await ctx.ui.confirm(
+    "Install CodeGraph CLI?",
+    [
+      "CodeGraph CLI is not installed.",
+      "",
+      "Install it globally now? This will run:",
+      CODEGRAPH_INSTALL_COMMAND,
+      "",
+      "It requires network access and modifies your global npm packages.",
+    ].join("\n"),
+  );
+  if (!ok) {
+    notify(ctx, "CodeGraph installation cancelled.", "info");
+    return false;
+  }
+
+  notify(ctx, `Installing CodeGraph CLI: ${CODEGRAPH_INSTALL_COMMAND}`, "info");
+  const installResult = await installCodeGraphCli({ cwd: ctx.cwd, timeoutSeconds: 600, signal: ctx.signal });
+  if (installResult.exitCode !== 0) {
+    notify(ctx, `CodeGraph install failed: ${clippedCommandResult(installResult, 2_000)}`, "error");
+    return false;
+  }
+
+  notify(ctx, "CodeGraph CLI installed. Verifying...", "info");
+  const verifyResult = await runCodeGraph(["version"], { cwd: ctx.cwd, timeoutSeconds: 30, signal: ctx.signal });
+  if (verifyResult.exitCode !== 0 || verifyResult.missing) {
+    notify(
+      ctx,
+      [
+        "CodeGraph installed, but pi could not verify it on PATH.",
+        "Restart pi or ensure your npm global bin directory is on PATH.",
+        clippedCommandResult(verifyResult, 1_500),
+      ].join("\n"),
+      "error",
+    );
+    return false;
+  }
+
+  notify(ctx, `CodeGraph CLI ready (${verifyResult.stdout.trim() || "version verified"}).`, "info");
+  return true;
+}
+
+async function runReindexCommand(ctx: any): Promise<void> {
+  await runCommandForUi(ctx, ["index", "-f"], "CodeGraph reindex", 300);
 }
 
 async function maybeAutoSync(root: string, signal?: AbortSignal): Promise<void> {
@@ -105,9 +200,9 @@ async function runCommandForUi(ctx: any, args: string[], description: string, ti
   const result: CodeGraphCommandResult = await runCodeGraph(args, { cwd: ctx.cwd, timeoutSeconds, signal: ctx.signal });
   const text = formatCommandResult(result);
   if (result.exitCode === 0) {
-    ctx.ui.notify(`${description} complete`, "info");
+    notify(ctx, `${description} complete`, "info");
   } else {
-    ctx.ui.notify(`${description} failed: ${text.slice(0, 500)}`, "error");
+    notify(ctx, `${description} failed: ${text.slice(0, 500)}`, "error");
   }
 }
 
@@ -249,6 +344,7 @@ export default function codegraphExtension(pi: ExtensionAPI): void {
         const ok = await ctx.ui.confirm("Initialize CodeGraph?", "This creates .codegraph/ and builds a local index for the current project.");
         if (!ok) return;
       }
+      if (!await ensureCodeGraphInstalled(ctx)) return;
       await runCommandForUi(ctx, ["init"], "CodeGraph init", 180);
     },
   });
@@ -256,16 +352,106 @@ export default function codegraphExtension(pi: ExtensionAPI): void {
   pi.registerCommand("codegraph:sync", {
     description: "Synchronize the current project's CodeGraph index",
     handler: async (_args, ctx) => {
+      if (!await ensureCodeGraphInstalled(ctx)) return;
       await runCommandForUi(ctx, ["sync"], "CodeGraph sync", 120);
+    },
+  });
+
+  pi.registerCommand("codegraph:reindex", {
+    description: "Force rebuild the current project's CodeGraph index",
+    handler: async (_args, ctx) => {
+      if (!await ensureCodeGraphInstalled(ctx)) return;
+      if (ctx.hasUI) {
+        const ok = await ctx.ui.confirm(
+          "Rebuild CodeGraph index?",
+          "This runs `codegraph index -f` and rebuilds the current project's .codegraph index.",
+        );
+        if (!ok) return;
+      }
+      await runReindexCommand(ctx);
+    },
+  });
+
+  pi.registerCommand("codegraph:update", {
+    description: "Update the global CodeGraph CLI after confirmation",
+    handler: async (_args, ctx) => {
+      if (!ctx.hasUI) {
+        notify(
+          ctx,
+          [
+            "Updating the global CodeGraph CLI requires interactive confirmation.",
+            `Run manually if intended: ${CODEGRAPH_UPDATE_COMMAND}`,
+          ].join("\n"),
+          "error",
+        );
+        return;
+      }
+
+      const npmResult = await runNpmCommand(["--version"], { cwd: ctx.cwd, timeoutSeconds: 30, signal: ctx.signal });
+      if (npmResult.exitCode !== 0) {
+        notify(ctx, `npm is not available: ${clippedCommandResult(npmResult, 1_500)}`, "error");
+        return;
+      }
+
+      const current = await runCodeGraph(["version"], { cwd: ctx.cwd, timeoutSeconds: 30, signal: ctx.signal });
+      const currentVersion = current.exitCode === 0 && !current.missing
+        ? current.stdout.trim() || "version detected"
+        : "not installed or not available on PATH";
+
+      const ok = await ctx.ui.confirm(
+        "Update CodeGraph CLI?",
+        [
+          `Current CodeGraph: ${currentVersion}`,
+          "",
+          "Update the global CodeGraph CLI now? This will run:",
+          CODEGRAPH_UPDATE_COMMAND,
+          "",
+          "You usually only need this when you want a newer CodeGraph feature or bug fix.",
+        ].join("\n"),
+      );
+      if (!ok) {
+        notify(ctx, "CodeGraph update cancelled.", "info");
+        return;
+      }
+
+      notify(ctx, `Updating CodeGraph CLI: ${CODEGRAPH_UPDATE_COMMAND}`, "info");
+      const updateResult = await updateCodeGraphCli({ cwd: ctx.cwd, timeoutSeconds: 600, signal: ctx.signal });
+      if (updateResult.exitCode !== 0) {
+        notify(ctx, `CodeGraph update failed: ${clippedCommandResult(updateResult, 2_000)}`, "error");
+        return;
+      }
+
+      const verifyResult = await runCodeGraph(["version"], { cwd: ctx.cwd, timeoutSeconds: 30, signal: ctx.signal });
+      if (verifyResult.exitCode !== 0 || verifyResult.missing) {
+        notify(
+          ctx,
+          [
+            "CodeGraph update finished, but pi could not verify it on PATH.",
+            "Restart pi or ensure your npm global bin directory is on PATH.",
+            clippedCommandResult(verifyResult, 1_500),
+          ].join("\n"),
+          "error",
+        );
+        return;
+      }
+
+      notify(ctx, `CodeGraph CLI updated (${verifyResult.stdout.trim() || "version verified"}).`, "info");
+
+      const reindex = await ctx.ui.confirm(
+        "Rebuild current CodeGraph index?",
+        "After updating CodeGraph, rebuilding this project's index can pick up engine improvements. Run `codegraph index -f` now?",
+      );
+      if (reindex) await runReindexCommand(ctx);
     },
   });
 
   pi.registerCommand("codegraph:status", {
     description: "Show CodeGraph status for the current project",
     handler: async (_args, ctx) => {
+      if (!await ensureCodeGraphInstalled(ctx)) return;
       const result = await runCodeGraph(["status"], { cwd: ctx.cwd, timeoutSeconds: 60, signal: ctx.signal });
-      const text = formatCommandResult(result);
-      ctx.ui.notify(text.slice(0, 2000), result.exitCode === 0 ? "info" : "error");
+      const text = withReindexTip(formatCommandResult(result));
+      notify(ctx, text.slice(0, 2_000), result.exitCode === 0 ? "info" : "error");
     },
   });
 }
