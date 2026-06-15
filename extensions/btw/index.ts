@@ -19,6 +19,7 @@ import {
   selectRecentMessages,
 } from "./prompts.ts";
 import { BTW_DISPLAY_TYPE, BTW_PROGRESS_TYPE, BTW_PROMOTED_TYPE } from "./types.ts";
+import { registerBtwTips } from "./tips.ts";
 import {
   addTopicMessage,
   closeTopic,
@@ -570,6 +571,8 @@ function messageCustomType(message: any): string | undefined {
 }
 
 export default function btwExtension(pi: ExtensionAPI): void {
+  const unregisterTips = registerBtwTips();
+
   pi.on("session_start", async (_event, ctx) => {
     resetBtwState();
     restoreBtwState(latestBtwState(ctx));
@@ -741,5 +744,9 @@ export default function btwExtension(pi: ExtensionAPI): void {
 
       await promoteTopic(pi, ctx, topic);
     },
+  });
+
+  pi.on("session_shutdown", async () => {
+    unregisterTips();
   });
 }

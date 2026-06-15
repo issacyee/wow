@@ -18,18 +18,23 @@ wow/
 │   │   ├── paths.ts         # Path shortening & OSC 8 hyperlink helpers
 │   │   ├── html.ts          # HTML → Markdown/Text conversion helpers
 │   │   ├── shell.ts         # Sync command execution wrappers
-│   │   └── safe.ts          # Read-only bash safety check
+│   │   ├── safe.ts          # Read-only bash safety check
+│   │   └── tips.ts          # Shared working-tip registry
 │   ├── locale/              # Stable same-language policy via before_agent_start
-│   │   └── index.ts         # Appends byte-stable language policy to the system prompt
+│   │   ├── index.ts         # Appends byte-stable language policy to the system prompt
+│   │   └── tips.ts          # Locale working tips
 │   ├── human-led-coding-workflow/ # ?/??/?!/$ human-led coding workflow logic
 │   │   ├── index.ts         # Prefix routing, context injection, tool gates, state persistence
 │   │   ├── prompts.ts       # Byte-stable discuss/plan/revise/execute prompts
 │   │   ├── plan.ts          # Plan detection, extraction, [DONE:n] tracking
-│   │   └── state.ts         # UI-independent workflow state store
+│   │   ├── state.ts         # UI-independent workflow state store
+│   │   └── tips.ts          # Workflow working tips
 │   ├── git-commit/          # /git-commit — LLM-generated Conventional Commits
-│   │   └── index.ts         # Standalone LLM call, parses output, executes commit via temp file
+│   │   ├── index.ts         # Standalone LLM call, parses output, executes commit via temp file
+│   │   └── tips.ts          # Git commit working tips
 │   ├── command-mappings/    # Generic declarative command alias registry
-│   │   └── index.ts         # Define command aliases (/exit, etc.) declaratively
+│   │   ├── index.ts         # Define command aliases (/exit, etc.) declaratively
+│   │   └── tips.ts          # Command mapping working tips
 │   ├── wow-tui/             # Unified visual shell / TUI compositor
 │   │   ├── index.ts         # Owns singleton TUI resources and installs presenters
 │   │   ├── config.ts        # Static visual feature toggles
@@ -39,23 +44,28 @@ wow/
 │   │   ├── editor.ts        # Composite editor: pi label, workflow border, IME conversion
 │   │   ├── tools.ts         # Focus-style built-in tool rendering overrides
 │   │   ├── widgets.ts       # Workflow status/todo presenters
+│   │   ├── tips.ts          # Wow TUI working tips
 │   │   └── btw.ts           # BTW custom message renderers
 │   ├── codegraph/           # CodeGraph CLI semantic code exploration tools
 │   │   ├── index.ts         # Static pi tools, commands, auto-sync debounce
 │   │   ├── runner.ts        # Safe spawn-based CLI runner
+│   │   ├── tips.ts          # CodeGraph working tips
 │   │   └── truncate.ts      # 32KB LLM-context output truncation
 │   ├── webfetch/            # Fetch web content and convert to markdown/text/html
-│   │   └── index.ts         # webfetch tool using native fetch + node-html-markdown conversion
+│   │   ├── index.ts         # webfetch tool using native fetch + node-html-markdown conversion
+│   │   └── tips.ts          # WebFetch working tips
 │   ├── btw/                 # /btw:* isolated side-channel Q&A threads
 │   │   ├── index.ts         # Commands, standalone LLM calls, context filtering
 │   │   ├── prompts.ts       # Side-channel and promotion prompts
 │   │   ├── state.ts         # Topic state persisted via custom entries
+│   │   ├── tips.ts          # BTW working tips
 │   │   └── types.ts         # Shared custom message type identifiers
 │   └── prefix-cache/        # Reasonix-style prefix-cache optimizations and diagnostics
 │       ├── index.ts         # Reasoning stripping, schema canonicalization, cache commands
 │       ├── reasoning.ts     # Provider/model allowlist and thinking block removal
 │       ├── schema.ts        # Deterministic JSON/schema canonicalization
-│       └── stats.ts         # Cache/diagnostic stats helpers
+│       ├── stats.ts         # Cache/diagnostic stats helpers
+│       └── tips.ts          # Prefix-cache working tips
 ├── prompts/                 # Prompt templates (reserved, currently empty)
 └── skills/                  # Skills (reserved, currently empty)
 ```
@@ -102,6 +112,7 @@ Sub-modules:
 - **html.ts** — `convertHTMLToMarkdown()`, `extractTextFromHTML()`, `stripTags()`, `isRasterImage()`, `STRIP_TAGS`. AST-based HTML conversion via node-html-markdown.
 - **shell.ts** — `execOrNull()`, `execWithError()`. Synchronous command execution wrappers with error handling.
 - **safe.ts** — `isSafeCommand()`. Shared read-only bash allowlist used by workflow gates.
+- **tips.ts** — `registerWowTips()`, `getWowTips()`, `clearWowTips()`. Shared UI-only working-tip registry used by feature extensions and `wow-tui`.
 
 ### locale
 
@@ -134,9 +145,10 @@ Responsibilities:
 - Registers `/config:global` and `/config:project` for scoped interactive settings management.
 - Installs the two-line footer via `ctx.ui.setFooter()`.
 - Installs the composite editor via `ctx.ui.setEditorComponent()`.
-- Applies the editor `𝝅` top-border label.
+- Applies the editor `π` top-border label.
 - Applies workflow prefix border colors and Chinese IME prefix conversion.
 - Presents workflow status and todo widgets by subscribing to workflow state.
+- Rotates feature-owned usage tips in the Working message without writing them to session or provider context.
 - Re-registers built-in tools with focus-style minimal rendering.
 - Installs focus-style rendering options for custom tools such as webfetch and CodeGraph.
 - Registers custom message renderers such as BTW side-channel message rendering.
@@ -180,14 +192,14 @@ Future extensions must treat prefix stability as a compatibility contract: dynam
 
 ## Human-Led Workflow Reference
 
-| Input | Behavior |
-|-------|----------|
-| `? <text>` | Discuss/analyze only, read-only exploration |
-| `?? <text>` | Write a new reviewable plan |
-| `??` | Write a plan from the most recent `?` discussion, if available |
-| `?! <text>` | Revise the active plan from explicit feedback |
-| `$` | Execute the active plan |
-| `$ <text>` | Execute the active plan with additional constraints |
+| Input       | Behavior                                                       |
+| ----------- | -------------------------------------------------------------- |
+| `? <text>`  | Discuss/analyze only, read-only exploration                    |
+| `?? <text>` | Write a new reviewable plan                                    |
+| `??`        | Write a plan from the most recent `?` discussion, if available |
+| `?! <text>` | Revise the active plan from explicit feedback                  |
+| `$`         | Execute the active plan                                        |
+| `$ <text>`  | Execute the active plan with additional constraints            |
 
 > **Chinese IME**: Full-width `？` `！` `￥` are automatically converted to `?` `!` `$`
 > when typed at workflow-prefix positions — no need to switch input methods.

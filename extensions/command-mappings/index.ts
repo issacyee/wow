@@ -12,6 +12,7 @@
  */
 
 import { type ExtensionAPI, type ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
+import { registerCommandMappingTips } from "./tips.ts";
 
 // ── Types ──
 
@@ -40,10 +41,16 @@ const COMMAND_MAPPINGS: CommandMapping[] = [
 // ── Extension entry ──
 
 export default function (pi: ExtensionAPI) {
+  const unregisterTips = registerCommandMappingTips();
+
   for (const mapping of COMMAND_MAPPINGS) {
     pi.registerCommand(mapping.name, {
       description: mapping.description,
       handler: mapping.handler,
     });
   }
+
+  pi.on("session_shutdown", async () => {
+    unregisterTips();
+  });
 }

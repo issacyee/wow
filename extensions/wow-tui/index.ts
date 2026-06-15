@@ -14,6 +14,7 @@ import { registerConfigUI } from "./config-ui.ts";
 import { createEditorComponent } from "./editor.ts";
 import { installFooter } from "./footer.ts";
 import { registerFocusToolRendering } from "./tools.ts";
+import { registerWowTuiTips } from "./tips.ts";
 import { updateWorkflowWidgets } from "./widgets.ts";
 import { createWorkingTimerController } from "./working.ts";
 
@@ -32,6 +33,7 @@ function applyWowDefaultTheme(ctx: ExtensionContext): void {
 }
 
 export default function wowTuiExtension(pi: ExtensionAPI): void {
+  const unregisterTips = registerWowTuiTips();
   registerConfigUI(pi);
 
   if (WOW_TUI_CONFIG.focusToolRendering) {
@@ -89,6 +91,7 @@ export default function wowTuiExtension(pi: ExtensionAPI): void {
     unsubscribeWorkflow = undefined;
     cleanupBtwAskTimer?.();
     cleanupBtwAskTimer = undefined;
+    unregisterTips();
 
     if (!ctx.hasUI) return;
 

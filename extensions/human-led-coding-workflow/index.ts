@@ -58,6 +58,7 @@ import {
   type WorkflowState,
 } from "./state.ts";
 import { isSafeCommand } from "../wow/safe.ts";
+import { registerHumanLedWorkflowTips } from "./tips.ts";
 
 const MAX_RESTORED_PLAN_CHARS = 12_000;
 const READ_ONLY_ALLOWED_TOOLS = new Set([
@@ -288,6 +289,8 @@ function hasRecentDiscussion(ctx: ExtensionContext): boolean {
 }
 
 export default function humanLedCodingWorkflowExtension(pi: ExtensionAPI): void {
+  const unregisterTips = registerHumanLedWorkflowTips();
+
   // input — detect ? / ?? / ?! / $ prefixes. Normal input stays untouched.
   pi.on("input", async (event, ctx) => {
     const parsed = parseWorkflowInput(event.text);
@@ -509,5 +512,6 @@ export default function humanLedCodingWorkflowExtension(pi: ExtensionAPI): void 
     hasExecutionAdjustment = false;
     planFromPreviousDiscussion = false;
     executionProgressDirty = false;
+    unregisterTips();
   });
 }

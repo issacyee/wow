@@ -30,6 +30,7 @@ import {
   formatHitRate,
   formatTokenCount,
 } from "./stats.ts";
+import { registerPrefixCacheTips } from "./tips.ts";
 
 interface PayloadDiagnostics {
   requests: number;
@@ -213,6 +214,8 @@ async function truncateToolResultContent(event: any): Promise<any | undefined> {
 }
 
 export default function prefixCacheExtension(pi: ExtensionAPI): void {
+  const unregisterTips = registerPrefixCacheTips();
+
   pi.on("before_agent_start", async (event) => {
     const hash = hashSystemPrompt(event.systemPrompt ?? "");
     lastSystemPromptHash = hash;
@@ -273,5 +276,9 @@ export default function prefixCacheExtension(pi: ExtensionAPI): void {
     handler: async (_args, ctx) => {
       notify(ctx, formatCacheDoctor(pi, ctx));
     },
+  });
+
+  pi.on("session_shutdown", async () => {
+    unregisterTips();
   });
 }

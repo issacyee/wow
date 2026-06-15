@@ -20,6 +20,7 @@ import {
   updateCodeGraphCli,
   type CodeGraphCommandResult,
 } from "./runner.ts";
+import { registerCodeGraphTips } from "./tips.ts";
 import { truncateCodeGraphOutput } from "./truncate.ts";
 
 const AUTO_SYNC_INTERVAL_MS = 5_000;
@@ -331,6 +332,8 @@ function createStatusTool() {
 }
 
 export default function codegraphExtension(pi: ExtensionAPI): void {
+  const unregisterTips = registerCodeGraphTips();
+
   pi.registerTool(createExploreTool());
   pi.registerTool(createNodeTool());
   pi.registerTool(createSearchTool());
@@ -453,5 +456,9 @@ export default function codegraphExtension(pi: ExtensionAPI): void {
       const text = withReindexTip(formatCommandResult(result));
       notify(ctx, text.slice(0, 2_000), result.exitCode === 0 ? "info" : "error");
     },
+  });
+
+  pi.on("session_shutdown", async () => {
+    unregisterTips();
   });
 }

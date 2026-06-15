@@ -96,8 +96,9 @@ BTW 使用独立 LLM 调用，并把 topic state 作为 custom entries 持久化
 它拥有包级别的 TUI 单例资源：
 
 - **Footer compositor**：自定义两行 footer，包含可点击 CWD、git branch、model/thinking level、context usage bar、token/cache/cost/billing stats 和 extension statuses
-- **Composite editor**：`𝝅` 顶部边框 label、workflow prefix 边框颜色、中文 IME 全角前缀转换（`？` `！` `￥` → `?` `!` `$`）
+- **Composite editor**：`π` 顶部边框 label、workflow prefix 边框颜色、中文 IME 全角前缀转换（`？` `！` `￥` → `?` `!` `$`）
 - **Workflow presenter**：基于 workflow state 展示 status indicator 和 todo widget
+- **Working tips carousel**：agent working 时在 Working message 中轮播精简使用提示（`Working 0ms • Tip: ...`），不会进入模型上下文
 - **BTW message rendering**：为 `/btw:*` side-channel messages 提供自定义渲染
 - **Focus-style tool rendering**：内置工具（`read`、`bash`、`edit`、`write`、`grep`、`find`、`ls`）以单行 dim-text 显示工具调用，并隐藏结果预览
 - **Config UI**：`/config:global` 和 `/config:project` 打开固定 scope 的交互式配置界面，可管理模型/thinking 默认值、常用 settings（theme、transport、queue、retry、compaction、terminal/editor、shell/session、warnings），以及资源路径/source 数组（`extensions`、`skills`、`prompts`、`themes`、`packages`）。按 `Ctrl+U` 可在当前 scope unset 并回退到继承的 global 或内置默认值；`Esc` 用于返回或退出菜单。项目级模型变更会立即应用，同时恢复原来的全局默认模型。
@@ -208,6 +209,7 @@ Commands：
 | `html.ts`     | `convertHTMLToMarkdown`, `extractTextFromHTML`, `stripTags`, `isRasterImage`, `STRIP_TAGS`                                          | webfetch                          |
 | `shell.ts`    | `execOrNull`, `execWithError`                                                                                                       | git-commit                        |
 | `safe.ts`     | `isSafeCommand`                                                                                                                     | human-led-coding-workflow         |
+| `tips.ts`     | `registerWowTips`, `getWowTips`, `clearWowTips`                                                                                     | feature tips, wow-tui working     |
 
 可以直接通过相对路径导入各 sub-module：
 
@@ -218,6 +220,7 @@ import { shortenPath, linkPath } from "../wow/paths.ts";
 import { convertHTMLToMarkdown } from "../wow/html.ts";
 import { execOrNull, execWithError } from "../wow/shell.ts";
 import { isSafeCommand } from "../wow/safe.ts";
+import { registerWowTips } from "../wow/tips.ts";
 ```
 
 也可以从统一入口导入：
@@ -265,18 +268,23 @@ wow/
 │   │   ├── paths.ts         # Path shortening & OSC 8 hyperlink helpers
 │   │   ├── html.ts          # HTML → Markdown/Text conversion helpers
 │   │   ├── shell.ts         # Sync command execution wrappers
-│   │   └── safe.ts          # Read-only bash command safety checks
+│   │   ├── safe.ts          # Read-only bash command safety checks
+│   │   └── tips.ts          # Shared working-tip registry
 │   ├── locale/              # Stable same-language policy
-│   │   └── index.ts         # Appends byte-stable language policy to system prompt
+│   │   ├── index.ts         # Appends byte-stable language policy to system prompt
+│   │   └── tips.ts          # Locale working tips
 │   ├── human-led-coding-workflow/ # ?/??/?!/$ human-led workflow logic
 │   │   ├── index.ts         # Prefix routing, context injection, tool gates, state persistence
 │   │   ├── prompts.ts       # Byte-stable workflow prompts
 │   │   ├── plan.ts          # Plan detection, extraction, [DONE:n] tracking
-│   │   └── state.ts         # UI-independent workflow state store
+│   │   ├── state.ts         # UI-independent workflow state store
+│   │   └── tips.ts          # Workflow working tips
 │   ├── git-commit/          # /git-commit — LLM-generated Conventional Commits
-│   │   └── index.ts         # Standalone LLM call, parses output, executes commit via temp file
+│   │   ├── index.ts         # Standalone LLM call, parses output, executes commit via temp file
+│   │   └── tips.ts          # Git commit working tips
 │   ├── command-mappings/    # Generic declarative command alias registry
-│   │   └── index.ts         # Define command aliases (/exit, etc.) declaratively
+│   │   ├── index.ts         # Define command aliases (/exit, etc.) declaratively
+│   │   └── tips.ts          # Command mapping working tips
 │   ├── wow-tui/             # Unified visual shell / TUI compositor
 │   │   ├── index.ts         # Owns singleton TUI resources and installs presenters
 │   │   ├── config.ts        # Static visual feature toggles
@@ -285,23 +293,28 @@ wow/
 │   │   ├── editor.ts        # Composite editor
 │   │   ├── tools.ts         # Focus-style built-in tool rendering overrides
 │   │   ├── widgets.ts       # Workflow status/todo presenters
+│   │   ├── tips.ts          # Wow TUI working tips
 │   │   └── btw.ts           # BTW custom message renderers
 │   ├── codegraph/           # CodeGraph CLI tools and commands
 │   │   ├── index.ts         # Static pi tools, commands, auto-sync debounce
 │   │   ├── runner.ts        # Safe spawn-based CodeGraph CLI runner
+│   │   ├── tips.ts          # CodeGraph working tips
 │   │   └── truncate.ts      # 32KB LLM-context output truncation
 │   ├── webfetch/            # Fetch web content and convert to markdown/text/html
-│   │   └── index.ts         # webfetch tool using native fetch + node-html-markdown conversion
+│   │   ├── index.ts         # webfetch tool using native fetch + node-html-markdown conversion
+│   │   └── tips.ts          # WebFetch working tips
 │   ├── btw/                 # /btw:* isolated side-channel Q&A threads
 │   │   ├── index.ts         # Commands, standalone LLM calls, context filtering
 │   │   ├── prompts.ts       # Side-channel and promotion prompts
 │   │   ├── state.ts         # Topic state persisted via custom entries
+│   │   ├── tips.ts          # BTW working tips
 │   │   └── types.ts         # Shared custom message type identifiers
 │   └── prefix-cache/        # Reasonix-style prefix-cache optimizations and diagnostics
 │       ├── index.ts         # Reasoning stripping, schema canonicalization, cache commands
 │       ├── reasoning.ts     # Provider/model allowlist and thinking block removal
 │       ├── schema.ts        # Deterministic JSON/schema canonicalization
-│       └── stats.ts         # Cache/diagnostic stats helpers
+│       ├── stats.ts         # Cache/diagnostic stats helpers
+│       └── tips.ts          # Prefix-cache working tips
 ├── prompts/                 # Prompt templates (reserved, currently empty)
 └── skills/                  # Skills (reserved, currently empty)
 ```

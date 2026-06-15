@@ -8,6 +8,8 @@
 
 import type { AssistantMessage } from "@earendil-works/pi-ai";
 import type { ExtensionAPI, ExtensionContext, SessionEntry, WorkingIndicatorOptions } from "@earendil-works/pi-coding-agent";
+import { getWowTips, type WowTip } from "../wow/tips.ts";
+import { WOW_TUI_CONFIG } from "./config.ts";
 import { openThinkingMetadataStore, type ThinkingMetadataStore } from "./thinking-metadata.ts";
 import {
   installThinkingRendererPatch,
@@ -23,6 +25,11 @@ const WORKING_INDICATOR: WorkingIndicatorOptions = {
   frames: SPINNER_FRAMES,
   intervalMs: TIMER_INTERVAL_MS,
 };
+
+const TIP_INITIAL_DELAY_MS = 0;
+const TIP_ROTATE_INTERVAL_MS = 30_000;
+const DEFAULT_TIP_PRIORITY = 50;
+const RECENT_TIP_HISTORY_LIMIT = 2;
 
 interface ActiveThinkingState {
   contentIndex: number;
@@ -41,6 +48,19 @@ interface PendingDuration {
   contentIndex: number;
   durationMs: number;
   label: string;
+}
+
+interface WorkingTipsDeck {
+  activePool: WowTip[];
+  usedPool: WowTip[];
+  recentTipIds: string[];
+  registrySignature: string;
+}
+
+interface WorkingTipsState {
+  startedAt: number;
+  currentTip?: WowTip;
+  lastTipChangedAt: number;
 }
 
 function nowMs(): number {
@@ -69,6 +89,8 @@ export function createWorkingTimerController(pi: ExtensionAPI): WorkingTimerCont
   let completedThinkingDurations: CompletedThinkingDuration[] = [];
   let intervalId: ReturnType<typeof setInterval> | undefined;
   let generation = 0;
+  let workingTipsDeck: WorkingTipsDeck | undefined;
+  let workingTipsState: WorkingTipsState | undefined;
   const entryIdsByMessage = new WeakMap<AssistantMessage, string>();
   const pendingDurations: PendingDuration[] = [];
 
@@ -183,13 +205,139 @@ export function createWorkingTimerController(pi: ExtensionAPI): WorkingTimerCont
     }
   }
 
+  function tipRegistrySignature(tips: WowTip[]): string {
+    return JSON.stringify(tips.map((tip) => [tip.feature, tip.id, tip.priority ?? "", tip.short]));
+  }
+
+  function tipPriority(tip: WowTip): number {
+    return Math.max(1, tip.priority ?? DEFAULT_TIP_PRIORITY);
+  }
+
+  function priorityBiasedShuffle(tips: WowTip[]): WowTip[] {
+    const remaining = [...tips];
+    const shuffled: WowTip[] = [];
+
+    // Priority affects how early a tip appears in each shuffled round. It does
+    // not increase long-term frequency: every tip appears once per round.
+    while (remaining.length > 0) {
+      const total = remaining.reduce((sum, tip) => sum + tipPriority(tip), 0);
+      let roll = Math.random() * total;
+      let selectedIndex = remaining.length - 1;
+
+      for (let i = 0; i < remaining.length; i++) {
+        roll -= tipPriority(remaining[i]);
+        if (roll <= 0) {
+          selectedIndex = i;
+          break;
+        }
+      }
+
+      const [selected] = remaining.splice(selectedIndex, 1);
+      shuffled.push(selected);
+    }
+
+    return shuffled;
+  }
+
+  function syncWorkingTipsDeck(): void {
+    if (!WOW_TUI_CONFIG.workingTips) {
+      workingTipsDeck = undefined;
+      return;
+    }
+
+    const tips = getWowTips();
+    if (tips.length === 0) {
+      workingTipsDeck = undefined;
+      return;
+    }
+
+    const signature = tipRegistrySignature(tips);
+    if (workingTipsDeck?.registrySignature === signature) return;
+
+    workingTipsDeck = {
+      activePool: priorityBiasedShuffle(tips),
+      usedPool: [],
+      recentTipIds: [],
+      registrySignature: signature,
+    };
+  }
+
+  function refillWorkingTipPool(deck: WorkingTipsDeck): void {
+    if (deck.activePool.length > 0 || deck.usedPool.length === 0) return;
+
+    deck.activePool = priorityBiasedShuffle(deck.usedPool);
+    deck.usedPool = [];
+  }
+
+  function recentWindowSize(deck: WorkingTipsDeck): number {
+    const uniqueTipCount = new Set([...deck.activePool, ...deck.usedPool].map((tip) => tip.id)).size;
+    return Math.min(RECENT_TIP_HISTORY_LIMIT, Math.max(0, uniqueTipCount - 1));
+  }
+
+  function takeTipFromPool(deck: WorkingTipsDeck, poolIndex: number): WowTip | undefined {
+    const [tip] = deck.activePool.splice(poolIndex, 1);
+    if (!tip) return undefined;
+
+    deck.usedPool.push(tip);
+    const historySize = recentWindowSize(deck);
+    deck.recentTipIds = historySize > 0
+      ? [...deck.recentTipIds, tip.id].slice(-historySize)
+      : [];
+    return tip;
+  }
+
+  function findNextTipIndex(deck: WorkingTipsDeck): number {
+    refillWorkingTipPool(deck);
+    if (deck.activePool.length <= 1) return 0;
+
+    const recentIds = new Set(deck.recentTipIds.slice(-recentWindowSize(deck)));
+    const preferredIndex = deck.activePool.findIndex((tip) => !recentIds.has(tip.id));
+    return preferredIndex >= 0 ? preferredIndex : 0;
+  }
+
+  function drawWorkingTip(): WowTip | undefined {
+    const deck = workingTipsDeck;
+    if (!deck) return undefined;
+
+    const tipIndex = findNextTipIndex(deck);
+    return takeTipFromPool(deck, tipIndex);
+  }
+
+  function clearWorkingTips(): void {
+    workingTipsState = undefined;
+  }
+
+  function currentWorkingTip(timestamp: number): string | undefined {
+    const state = workingTipsState;
+    if (!state) return undefined;
+
+    const elapsed = timestamp - state.startedAt;
+    if (elapsed < TIP_INITIAL_DELAY_MS) return undefined;
+
+    if (!state.currentTip || timestamp - state.lastTipChangedAt >= TIP_ROTATE_INTERVAL_MS) {
+      state.currentTip = drawWorkingTip();
+      state.lastTipChangedAt = timestamp;
+    }
+
+    return state.currentTip?.short;
+  }
+
+  function formatWorkingMessage(timestamp: number): string | undefined {
+    if (workingStartedAt === undefined) return undefined;
+
+    const base = `Working ${formatDuration(timestamp - workingStartedAt)}`;
+    const tip = currentWorkingTip(timestamp);
+    return tip ? `${base} • Tip: ${tip}` : base;
+  }
+
   function refresh(): void {
     if (!ctx?.hasUI) return;
 
     const timestamp = nowMs();
 
-    if (workingStartedAt !== undefined) {
-      ctx.ui.setWorkingMessage(`Working ${formatDuration(timestamp - workingStartedAt)}`);
+    const workingMessage = formatWorkingMessage(timestamp);
+    if (workingMessage !== undefined) {
+      ctx.ui.setWorkingMessage(workingMessage);
     }
 
     if (activeThinking) {
@@ -263,11 +411,22 @@ export function createWorkingTimerController(pi: ExtensionAPI): WorkingTimerCont
     completedThinkingDurations = [];
   }
 
+  function startWorkingTips(timestamp = nowMs()): void {
+    syncWorkingTipsDeck();
+    workingTipsState = {
+      startedAt: timestamp,
+      currentTip: drawWorkingTip(),
+      lastTipChangedAt: timestamp,
+    };
+  }
+
   pi.on("agent_start", async () => {
     if (!ctx?.hasUI) return;
 
     generation++;
-    workingStartedAt = nowMs();
+    const timestamp = nowMs();
+    workingStartedAt = timestamp;
+    startWorkingTips(timestamp);
     resetAssistantStreamState();
     startRefreshLoop();
   });
@@ -318,6 +477,7 @@ export function createWorkingTimerController(pi: ExtensionAPI): WorkingTimerCont
     finishThinking();
     persistCompletedDurationsForLatestMessage();
     workingStartedAt = undefined;
+    clearWorkingTips();
     stopRefreshLoopIfIdle();
     restoreWorkingMessageSoon(currentGeneration);
     setTimeout(reconcilePendingDurations, 0);
@@ -330,6 +490,7 @@ export function createWorkingTimerController(pi: ExtensionAPI): WorkingTimerCont
       ctx = sessionCtx;
       metadataStore = openThinkingMetadataStore(ctx.sessionManager.getSessionFile(), ctx.sessionManager.getSessionId());
       workingStartedAt = undefined;
+      clearWorkingTips();
       resetAssistantStreamState();
       pendingDurations.length = 0;
       stopRefreshLoop();
@@ -343,6 +504,7 @@ export function createWorkingTimerController(pi: ExtensionAPI): WorkingTimerCont
 
     shutdownSession(): void {
       workingStartedAt = undefined;
+      clearWorkingTips();
       resetAssistantStreamState();
       pendingDurations.length = 0;
       stopRefreshLoop();

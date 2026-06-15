@@ -10,6 +10,7 @@
  *   html.ts      — HTML → Markdown/Text conversion
  *   shell.ts     — Synchronous command execution wrappers
  *   safe.ts      — Read-only bash command safety checks
+ *   tips.ts      — Shared working-tip registry
  *
  * The entry itself is a no-op — it registers nothing and has no side effects.
  * Other extensions import utilities directly from the sub-modules:
@@ -71,6 +72,14 @@ export {
 export {
   isSafeCommand,
 } from "./safe.ts";
+
+export {
+  clearWowTips,
+  getWowTips,
+  registerWowTips,
+  type WowTip,
+  type WowTipInput,
+} from "./tips.ts";
 
 // ── Extension entry (no-op) ──
 

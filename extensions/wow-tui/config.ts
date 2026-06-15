@@ -12,4 +12,5 @@ export const WOW_TUI_CONFIG = {
   focusToolRendering: true,
   btwRendering: true,
   workingTimers: true,
+  workingTips: true,
 } as const;

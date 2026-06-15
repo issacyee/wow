@@ -120,8 +120,9 @@ from `package.json` disables these visuals while leaving workflow/cache/tool log
 It owns package-level singleton TUI resources:
 
 - **Footer compositor**: custom two-line footer with clickable CWD, git branch, model/thinking level, context usage bar, token/cache/cost/billing stats, and extension statuses
-- **Composite editor**: `𝝅` top-border label, workflow prefix border colors, and Chinese IME full-width prefix conversion (`？` `！` `￥` → `?` `!` `$`)
+- **Composite editor**: `π` top-border label, workflow prefix border colors, and Chinese IME full-width prefix conversion (`？` `！` `￥` → `?` `!` `$`)
 - **Workflow presenter**: status indicator and todo widget based on workflow state
+- **Working tips carousel**: while the agent is working, concise usage tips rotate in the Working message (`Working 0ms • Tip: ...`) without entering the model context
 - **BTW message rendering**: custom rendering for `/btw:*` side-channel messages
 - **Focus-style tool rendering**: built-in tools (`read`, `bash`, `edit`, `write`, `grep`, `find`, `ls`) render as single dim-text lines with hidden result previews
 - **Config UI**: `/config:global` and `/config:project` open scoped interactive settings UIs for model/thinking defaults, common settings (theme, transport, queues, retry, compaction, terminal/editor, shell/session, warnings), and resource path/source arrays (`extensions`, `skills`, `prompts`, `themes`, `packages`). Press `Ctrl+U` to unset entries at the current scope and fall back to inherited/global or built-in defaults; `Esc` returns or exits menus. Project model changes are applied immediately while restoring the previous global default model.
@@ -252,6 +253,7 @@ it serves purely as an import source for common functions.
 | `html.ts`     | `convertHTMLToMarkdown`, `extractTextFromHTML`, `stripTags`, `isRasterImage`, `STRIP_TAGS`                                          | webfetch                          |
 | `shell.ts`    | `execOrNull`, `execWithError`                                                                                                       | git-commit                        |
 | `safe.ts`     | `isSafeCommand`                                                                                                                     | human-led-coding-workflow         |
+| `tips.ts`     | `registerWowTips`, `getWowTips`, `clearWowTips`                                                                                     | feature tips, wow-tui working     |
 
 Each sub-module can be imported directly by relative path:
 
@@ -262,6 +264,7 @@ import { shortenPath, linkPath } from "../wow/paths.ts";
 import { convertHTMLToMarkdown } from "../wow/html.ts";
 import { execOrNull, execWithError } from "../wow/shell.ts";
 import { isSafeCommand } from "../wow/safe.ts";
+import { registerWowTips } from "../wow/tips.ts";
 ```
 
 Or import everything from the unified entry:
@@ -309,18 +312,23 @@ wow/
 │   │   ├── paths.ts         # Path shortening & OSC 8 hyperlink helpers
 │   │   ├── html.ts          # HTML → Markdown/Text conversion helpers
 │   │   ├── shell.ts         # Sync command execution wrappers
-│   │   └── safe.ts          # Read-only bash command safety checks
+│   │   ├── safe.ts          # Read-only bash command safety checks
+│   │   └── tips.ts          # Shared working-tip registry
 │   ├── locale/              # Stable same-language policy
-│   │   └── index.ts         # Appends byte-stable language policy to system prompt
+│   │   ├── index.ts         # Appends byte-stable language policy to system prompt
+│   │   └── tips.ts          # Locale working tips
 │   ├── human-led-coding-workflow/ # ?/??/?!/$ human-led workflow logic
 │   │   ├── index.ts         # Prefix routing, context injection, tool gates, state persistence
 │   │   ├── prompts.ts       # Byte-stable workflow prompts
 │   │   ├── plan.ts          # Plan detection, extraction, [DONE:n] tracking
-│   │   └── state.ts         # UI-independent workflow state store
+│   │   ├── state.ts         # UI-independent workflow state store
+│   │   └── tips.ts          # Workflow working tips
 │   ├── git-commit/          # /git-commit — LLM-generated Conventional Commits
-│   │   └── index.ts         # Standalone LLM call, parses output, executes commit via temp file
+│   │   ├── index.ts         # Standalone LLM call, parses output, executes commit via temp file
+│   │   └── tips.ts          # Git commit working tips
 │   ├── command-mappings/    # Generic declarative command alias registry
-│   │   └── index.ts         # Define command aliases (/exit, etc.) declaratively
+│   │   ├── index.ts         # Define command aliases (/exit, etc.) declaratively
+│   │   └── tips.ts          # Command mapping working tips
 │   ├── wow-tui/             # Unified visual shell / TUI compositor
 │   │   ├── index.ts         # Owns singleton TUI resources and installs presenters
 │   │   ├── config.ts        # Static visual feature toggles
@@ -329,23 +337,28 @@ wow/
 │   │   ├── editor.ts        # Composite editor
 │   │   ├── tools.ts         # Focus-style built-in tool rendering overrides
 │   │   ├── widgets.ts       # Workflow status/todo presenters
+│   │   ├── tips.ts          # Wow TUI working tips
 │   │   └── btw.ts           # BTW custom message renderers
 │   ├── codegraph/           # CodeGraph CLI tools and commands
 │   │   ├── index.ts         # Static pi tools, commands, auto-sync debounce
 │   │   ├── runner.ts        # Safe spawn-based CodeGraph CLI runner
+│   │   ├── tips.ts          # CodeGraph working tips
 │   │   └── truncate.ts      # 32KB LLM-context output truncation
 │   ├── webfetch/            # Fetch web content and convert to markdown/text/html
-│   │   └── index.ts         # webfetch tool using native fetch + node-html-markdown conversion
+│   │   ├── index.ts         # webfetch tool using native fetch + node-html-markdown conversion
+│   │   └── tips.ts          # WebFetch working tips
 │   ├── btw/                 # /btw:* isolated side-channel Q&A threads
 │   │   ├── index.ts         # Commands, standalone LLM calls, context filtering
 │   │   ├── prompts.ts       # Side-channel and promotion prompts
 │   │   ├── state.ts         # Topic state persisted via custom entries
+│   │   ├── tips.ts          # BTW working tips
 │   │   └── types.ts         # Shared custom message type identifiers
 │   └── prefix-cache/        # Reasonix-style prefix-cache optimizations and diagnostics
 │       ├── index.ts         # Reasoning stripping, schema canonicalization, cache commands
 │       ├── reasoning.ts     # Provider/model allowlist and thinking block removal
 │       ├── schema.ts        # Deterministic JSON/schema canonicalization
-│       └── stats.ts         # Cache/diagnostic stats helpers
+│       ├── stats.ts         # Cache/diagnostic stats helpers
+│       └── tips.ts          # Prefix-cache working tips
 ├── prompts/                 # Prompt templates (reserved, currently empty)
 └── skills/                  # Skills (reserved, currently empty)
 ```

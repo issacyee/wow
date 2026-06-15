@@ -12,6 +12,7 @@
 import { complete, type Message } from "@earendil-works/pi-ai";
 import { type ExtensionAPI, type ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { execOrNull, execWithError } from "../wow/shell.ts";
+import { registerGitCommitTips } from "./tips.ts";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
@@ -273,6 +274,8 @@ async function handleGitCommit(
 // ── Extension entry ──
 
 export default function (pi: ExtensionAPI) {
+  const unregisterTips = registerGitCommitTips();
+
   pi.registerCommand("git-commit", {
     description: "Generate a balanced Conventional Commits message from staged changes and commit",
     handler: async (args, ctx) => handleGitCommit(pi, args, ctx),
@@ -286,5 +289,9 @@ export default function (pi: ExtensionAPI) {
   pi.registerCommand("git-commit:en", {
     description: "Generate an English Conventional Commits message from staged changes and commit",
     handler: async (args, ctx) => handleGitCommit(pi, args, ctx, "en"),
+  });
+
+  pi.on("session_shutdown", async () => {
+    unregisterTips();
   });
 }

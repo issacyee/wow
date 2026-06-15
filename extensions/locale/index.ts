@@ -9,13 +9,20 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { buildStableLanguagePolicy } from "../wow/locale.ts";
+import { registerLocaleTips } from "./tips.ts";
 
 // ── Extension entry ──
 
 export default function localeExtension(pi: ExtensionAPI): void {
+  const unregisterTips = registerLocaleTips();
+
   pi.on("before_agent_start", async (event) => {
     return {
       systemPrompt: `${event.systemPrompt}\n\n${buildStableLanguagePolicy()}`,
     };
+  });
+
+  pi.on("session_shutdown", async () => {
+    unregisterTips();
   });
 }

@@ -21,6 +21,7 @@ import {
   convertHTMLToMarkdown,
   isRasterImage,
 } from "../wow/html.ts";
+import { registerWebfetchTips } from "./tips.ts";
 
 // ── Constants ──
 
@@ -262,5 +263,11 @@ export function createWebfetchTool(renderOptions: Record<string, any> = getWebfe
 // ── Extension entry ──
 
 export default function (pi: ExtensionAPI): void {
+  const unregisterTips = registerWebfetchTips();
+
   pi.registerTool(createWebfetchTool());
+
+  pi.on("session_shutdown", async () => {
+    unregisterTips();
+  });
 }
