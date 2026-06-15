@@ -34,7 +34,6 @@ const RECENT_TIP_HISTORY_LIMIT = 2;
 interface ActiveThinkingState {
   contentIndex: number;
   startedAt: number;
-  label?: string;
 }
 
 interface CompletedThinkingDuration {
@@ -167,10 +166,6 @@ export function createWorkingTimerController(pi: ExtensionAPI): WorkingTimerCont
     for (const duration of completedThinkingDurations) {
       setThinkingLabel(message, duration.contentIndex, duration.label);
     }
-
-    if (activeThinking?.label) {
-      setThinkingLabel(message, activeThinking.contentIndex, activeThinking.label);
-    }
   }
 
   function setLatestAssistantMessage(message: AssistantMessage): void {
@@ -189,19 +184,6 @@ export function createWorkingTimerController(pi: ExtensionAPI): WorkingTimerCont
 
     for (const duration of completedThinkingDurations) {
       queueFinalThinkingDuration(latestAssistantMessage, duration);
-    }
-  }
-
-  function updateActiveThinking(timestamp = nowMs()): void {
-    if (!activeThinking || !latestAssistantMessage) return;
-
-    const label = `Thinking ${formatDuration(timestamp - activeThinking.startedAt)}`;
-    const labelChanged = label !== activeThinking.label;
-    activeThinking.label = label;
-    setThinkingLabel(latestAssistantMessage, activeThinking.contentIndex, label);
-
-    if (labelChanged) {
-      refreshLatestAssistantMessage();
     }
   }
 
@@ -339,10 +321,6 @@ export function createWorkingTimerController(pi: ExtensionAPI): WorkingTimerCont
     if (workingMessage !== undefined) {
       ctx.ui.setWorkingMessage(workingMessage);
     }
-
-    if (activeThinking) {
-      updateActiveThinking(timestamp);
-    }
   }
 
   function startRefreshLoop(): void {
@@ -380,7 +358,6 @@ export function createWorkingTimerController(pi: ExtensionAPI): WorkingTimerCont
       startedAt: timestamp,
     };
     startRefreshLoop();
-    updateActiveThinking(timestamp);
   }
 
   function finishThinking(timestamp = nowMs(), finalMessage?: AssistantMessage): void {
