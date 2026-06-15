@@ -1,6 +1,9 @@
 /**
  * Prefix Cache — Reasonix-inspired prompt stability optimizations.
  *
+ * Inspired by and partially adapted from DeepSeek Reasonix's prefix-cache
+ * behavior. DeepSeek Reasonix is MIT licensed; see THIRD_PARTY_NOTICES.md.
+ *
  * Design rules for future extensions:
  * - Do not mutate the system prompt with per-turn timestamps, locale strings,
  *   counters, random IDs, or transient mode state.

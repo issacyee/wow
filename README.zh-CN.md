@@ -322,3 +322,5 @@ wow/
 ## License
 
 [MIT](LICENSE) © 2026 issacyee
+
+部分内容受 MIT 许可第三方项目启发或部分改编；详见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。

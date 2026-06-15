@@ -366,3 +366,5 @@ wow/
 ## License
 
 [MIT](LICENSE) © 2026 issacyee
+
+Portions are inspired by or partially adapted from MIT-licensed third-party projects; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

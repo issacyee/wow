@@ -1,8 +1,10 @@
 /**
  * WebFetch Tool — fetch web content and convert to markdown/text/html
  *
- * Ported from opencode's built-in webfetch tool. Uses Node.js native fetch.
- * HTML conversion powered by node-html-markdown (AST-based).
+ * Inspired by and partially adapted from opencode's built-in webfetch tool.
+ * opencode is MIT licensed; see THIRD_PARTY_NOTICES.md.
+ * Uses Node.js native fetch. HTML conversion powered by node-html-markdown
+ * (AST-based).
  *
  * Parameters:
  *   url     — The URL to fetch content from (required)
@@ -161,7 +163,7 @@ export function createWebfetchTool(renderOptions: Record<string, any> = getWebfe
       response.status === 403 &&
       response.headers.get("cf-mitigated") === "challenge"
     ) {
-      const retryHeaders = { ...headers, "User-Agent": "opencode" };
+      const retryHeaders = { ...headers, "User-Agent": "pi" };
       try {
         response = await fetch(params.url, {
           method: "GET",
