@@ -157,7 +157,7 @@ Values use the same formats as pi theme vars: `"#RRGGBB"`, `0`-`255`, `""`, or
 another var name. Supported tokens:
 
 - Workflow borders: `wow.workflow.discussBorder`, `wow.workflow.planBorder`, `wow.workflow.reviseBorder`, `wow.workflow.executeBorder`
-- Workflow status: `wow.workflow.statusDiscuss`, `wow.workflow.statusPlan`, `wow.workflow.statusRevise`, `wow.workflow.statusExec`, `wow.workflow.statusDone`, `wow.workflow.statusReady`
+- Workflow status: `wow.workflow.statusDiscuss`, `wow.workflow.statusPlan`, `wow.workflow.statusRevise`, `wow.workflow.statusExec`, `wow.workflow.statusReady`
 - Footer: `wow.footer.cwd`, `wow.footer.branch`, `wow.footer.model`, `wow.footer.tokens`, `wow.footer.cost`, `wow.footer.status`, `wow.footer.contextOk`, `wow.footer.contextWarn`, `wow.footer.contextDanger`
 
 Optional billing display currently supports official DeepSeek API accounts.

@@ -20,7 +20,6 @@ export const DEFAULT_WOW_THEME_FALLBACKS = {
   "workflow.statusPlan": { pi: "warning" },
   "workflow.statusRevise": { pi: "warning" },
   "workflow.statusExec": { pi: "accent" },
-  "workflow.statusDone": { pi: "success" },
   "workflow.statusReady": { pi: "muted" },
   "footer.cwd": { pi: "muted" },
   "footer.branch": { pi: "muted" },

@@ -17,6 +17,7 @@ import { registerFocusToolRendering } from "./tools.ts";
 import { registerWowTuiTips } from "./tips.ts";
 import { updateWorkflowWidgets } from "./widgets.ts";
 import { createWorkingTimerController } from "./working.ts";
+import { registerWorkflowSummaryRendering } from "./workflow-summary.ts";
 
 const VIEGO_THEME_NAME = "Viego";
 
@@ -42,6 +43,10 @@ export default function wowTuiExtension(pi: ExtensionAPI): void {
 
   if (WOW_TUI_CONFIG.btwRendering) {
     registerBtwRendering(pi);
+  }
+
+  if (WOW_TUI_CONFIG.workflowWidgets) {
+    registerWorkflowSummaryRendering(pi);
   }
 
   const workingTimerController = WOW_TUI_CONFIG.workingTimers

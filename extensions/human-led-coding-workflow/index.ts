@@ -35,6 +35,7 @@ import {
   hasPlanStructure,
   isCompletePlan,
   markCompletedSteps,
+  type TodoItem,
 } from "./plan.ts";
 import {
   clearCompletedExecutionDisplay,
@@ -59,6 +60,10 @@ import {
 } from "./state.ts";
 import { isSafeCommand } from "../wow/safe.ts";
 import { registerHumanLedWorkflowTips } from "./tips.ts";
+import {
+  WORKFLOW_EXECUTION_SUMMARY_TYPE,
+  type WorkflowExecutionSummaryDetails,
+} from "./types.ts";
 
 const MAX_RESTORED_PLAN_CHARS = 12_000;
 const READ_ONLY_ALLOWED_TOOLS = new Set([
@@ -78,6 +83,42 @@ const READ_ONLY_ALLOWED_TOOLS = new Set([
 let hasExecutionAdjustment = false;
 let planFromPreviousDiscussion = false;
 let executionProgressDirty = false;
+
+function cloneTodoItems(items: TodoItem[]): TodoItem[] {
+  return items.map((item) => ({ ...item }));
+}
+
+function queueExecutionSummaryMessage(
+  pi: ExtensionAPI,
+  ctx: ExtensionContext,
+  todoItems: TodoItem[],
+  attempt = 0,
+): void {
+  if (todoItems.length === 0) return;
+
+  setTimeout(() => {
+    if (typeof ctx.isIdle === "function" && !ctx.isIdle()) {
+      if (attempt < 40) queueExecutionSummaryMessage(pi, ctx, todoItems, attempt + 1);
+      return;
+    }
+
+    const details: WorkflowExecutionSummaryDetails = {
+      version: 1,
+      todoItems: cloneTodoItems(todoItems),
+    };
+
+    try {
+      pi.sendMessage({
+        customType: WORKFLOW_EXECUTION_SUMMARY_TYPE,
+        content: "Execution completed",
+        display: true,
+        details,
+      }, { triggerTurn: false });
+    } catch {
+      // The session may have been reloaded or shut down before the idle callback.
+    }
+  }, attempt === 0 ? 0 : 50);
+}
 
 function persistState(pi: ExtensionAPI): void {
   pi.appendEntry(WORKFLOW_STATE_TYPE, currentWorkflowState());
@@ -249,6 +290,19 @@ function isWorkflowContextMessage(message: any): boolean {
   return (message?.role === "custom" || message?.type === "custom_message") && message.customType === WORKFLOW_CONTEXT_TYPE;
 }
 
+function isWorkflowExecutionSummaryMessage(message: any): boolean {
+  return (message?.role === "custom" || message?.type === "custom_message") &&
+    message.customType === WORKFLOW_EXECUTION_SUMMARY_TYPE;
+}
+
+function filterExecutionSummaryMessages<T>(messages: T[]): T[] {
+  return messages.filter((message) => !isWorkflowExecutionSummaryMessage(message));
+}
+
+function isWorkflowExecutionSummaryEntry(entry: any): boolean {
+  return entry?.type === "custom_message" && entry.customType === WORKFLOW_EXECUTION_SUMMARY_TYPE;
+}
+
 function contextText(message: any): string {
   const content = message?.content;
   if (typeof content === "string") return content;
@@ -405,6 +459,11 @@ export default function humanLedCodingWorkflowExtension(pi: ExtensionAPI): void 
 
     let changed = false;
     const messages = event.messages.filter((message, index) => {
+      if (isWorkflowExecutionSummaryMessage(message)) {
+        changed = true;
+        return false;
+      }
+
       if (!isWorkflowContextMessage(message)) return true;
       const keep = index === keepIndex;
       if (!keep) changed = true;
@@ -412,6 +471,16 @@ export default function humanLedCodingWorkflowExtension(pi: ExtensionAPI): void 
     });
 
     if (changed) return { messages };
+  });
+
+  pi.on("session_before_compact", async (event) => {
+    event.preparation.messagesToSummarize = filterExecutionSummaryMessages(event.preparation.messagesToSummarize);
+    event.preparation.turnPrefixMessages = filterExecutionSummaryMessages(event.preparation.turnPrefixMessages);
+  });
+
+  pi.on("session_before_tree", async (event) => {
+    event.preparation.entriesToSummarize = event.preparation.entriesToSummarize
+      .filter((entry) => !isWorkflowExecutionSummaryEntry(entry));
   });
 
   // tool_call — read-only gates for discuss/plan/revise. Active tool schemas remain stable.
@@ -466,7 +535,7 @@ export default function humanLedCodingWorkflowExtension(pi: ExtensionAPI): void 
   });
 
   // agent_end — capture plans and clear transient mode state.
-  pi.on("agent_end", async (event) => {
+  pi.on("agent_end", async (event, ctx) => {
     const turnMode = getTurnMode();
 
     if (turnMode === "plan" || turnMode === "revise") {
@@ -485,6 +554,7 @@ export default function humanLedCodingWorkflowExtension(pi: ExtensionAPI): void 
       const allExtractedStepsCompleted = todoItems.length === 0 || todoItems.every((item) => item.completed);
       if (allExtractedStepsCompleted || looksLikeCompletedExecutionSummary(getLatestAssistantText(event.messages))) {
         finishExecution();
+        queueExecutionSummaryMessage(pi, ctx, getTodoItems());
       } else {
         continueExecution();
       }

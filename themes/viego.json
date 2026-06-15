@@ -29,7 +29,6 @@
     "wow.workflow.statusPlan": "gold",
     "wow.workflow.statusRevise": "yellow",
     "wow.workflow.statusExec": "brightTeal",
-    "wow.workflow.statusDone": "green",
     "wow.workflow.statusReady": "grey",
     "wow.footer.cwd": "yellow",
     "wow.footer.branch": "purple",

@@ -126,7 +126,7 @@ Wow 专属颜色通过 pi theme 的可选 `vars` 条目定义，不会写入 pi 
 取值格式与 pi theme vars 相同：`"#RRGGBB"`、`0`-`255`、`""` 或另一个 var 名称。支持的 tokens：
 
 - Workflow borders：`wow.workflow.discussBorder`、`wow.workflow.planBorder`、`wow.workflow.reviseBorder`、`wow.workflow.executeBorder`
-- Workflow status：`wow.workflow.statusDiscuss`、`wow.workflow.statusPlan`、`wow.workflow.statusRevise`、`wow.workflow.statusExec`、`wow.workflow.statusDone`、`wow.workflow.statusReady`
+- Workflow status：`wow.workflow.statusDiscuss`、`wow.workflow.statusPlan`、`wow.workflow.statusRevise`、`wow.workflow.statusExec`、`wow.workflow.statusReady`
 - Footer：`wow.footer.cwd`、`wow.footer.branch`、`wow.footer.model`、`wow.footer.tokens`、`wow.footer.cost`、`wow.footer.status`、`wow.footer.contextOk`、`wow.footer.contextWarn`、`wow.footer.contextDanger`
 
 可选 billing 显示目前支持 DeepSeek 官方 API 账户。当 active provider 是 `deepseek` 时，
