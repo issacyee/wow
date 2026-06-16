@@ -23,6 +23,9 @@ import {
   getKeybindings,
   Key,
   matchesKey,
+  parseKey,
+  type KeyId,
+  type KeybindingsConfig,
   type SelectItem,
   SelectList,
   type SettingItem,
@@ -40,7 +43,8 @@ type ThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh";
 type TransportSetting = "auto" | "sse" | "websocket" | "websocket-cached";
 type ResourceField = "extensions" | "skills" | "prompts" | "themes" | "packages";
 type ResourceAction = "add" | "remove" | "clear" | "list";
-type MainAction = "model" | "thinking" | "common" | "resources" | "reload";
+type KeybindingEditorAction = "replace" | "add" | "remove" | "disable" | "restore" | "back";
+type MainAction = "model" | "thinking" | "common" | "resources" | "keybindings" | "reload";
 
 interface SettingOption<T extends string = string> {
   value: T;
@@ -75,6 +79,10 @@ function settingsPath(scope: ConfigScope, cwd: string): string {
     : join(cwd, ".pi", "settings.json");
 }
 
+function keybindingsPath(): string {
+  return join(getAgentDir(), "keybindings.json");
+}
+
 function readJsonFile(path: string): JsonObject {
   if (!existsSync(path)) return {};
   const content = readFileSync(path, "utf-8").trim();
@@ -90,6 +98,27 @@ function writeJsonFile(path: string, value: JsonObject): void {
   const dir = dirname(path);
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
   writeFileSync(path, `${JSON.stringify(value, null, 2)}\n`, "utf-8");
+}
+
+function readKeybindingsConfig(): KeybindingsConfig {
+  const raw = readJsonFile(keybindingsPath());
+  const config: KeybindingsConfig = {};
+
+  for (const [id, value] of Object.entries(raw)) {
+    if (typeof value === "string") {
+      config[id] = value as KeyId;
+      continue;
+    }
+    if (Array.isArray(value) && value.every((entry) => typeof entry === "string")) {
+      config[id] = value as KeyId[];
+    }
+  }
+
+  return config;
+}
+
+function writeKeybindingsConfig(config: KeybindingsConfig): void {
+  writeJsonFile(keybindingsPath(), orderKeybindingsConfig(config));
 }
 
 function readSettings(scope: ConfigScope, cwd: string): JsonObject {
@@ -281,6 +310,128 @@ function scopedCurrentValue(
   return `↳ ${stringifyValue(effectiveValue)} (built-in)`;
 }
 
+// ── Keybindings helpers ──────────────────────────────────────────────────
+
+interface KeybindingActionInfo {
+  id: string;
+  description: string;
+  defaultKeys: KeyId[];
+  currentKeys: KeyId[];
+  userKeys: KeyId[] | undefined;
+  hasUserOverride: boolean;
+}
+
+function normalizeKeyList(value: unknown): KeyId[] {
+  if (value === undefined) return [];
+  const raw = Array.isArray(value) ? value : [value];
+  const seen = new Set<string>();
+  const keys: KeyId[] = [];
+
+  for (const item of raw) {
+    if (typeof item !== "string" || seen.has(item)) continue;
+    seen.add(item);
+    keys.push(item as KeyId);
+  }
+
+  return keys;
+}
+
+function keyListDisplay(keys: KeyId[] | undefined): string {
+  if (!keys || keys.length === 0) return "(none)";
+  return keys.join(", ");
+}
+
+function keybindingDefinitions(): Record<string, { defaultKeys: KeyId | KeyId[]; description?: string }> {
+  return ((getKeybindings() as any).definitions ?? {}) as Record<string, { defaultKeys: KeyId | KeyId[]; description?: string }>;
+}
+
+function keybindingIds(): string[] {
+  return Object.keys(keybindingDefinitions()).sort((a, b) => a.localeCompare(b));
+}
+
+function orderKeybindingsConfig(config: KeybindingsConfig): JsonObject {
+  const ordered: JsonObject = {};
+  for (const id of keybindingIds()) {
+    if (Object.prototype.hasOwnProperty.call(config, id)) ordered[id] = config[id];
+  }
+
+  for (const id of Object.keys(config).filter((key) => !Object.prototype.hasOwnProperty.call(ordered, key)).sort()) {
+    ordered[id] = config[id];
+  }
+
+  return ordered;
+}
+
+function getKeybindingInfo(id: string, config: KeybindingsConfig = readKeybindingsConfig()): KeybindingActionInfo | undefined {
+  const manager = getKeybindings();
+  const definition = keybindingDefinitions()[id];
+  if (!definition) return undefined;
+
+  const hasUserOverride = Object.prototype.hasOwnProperty.call(config, id);
+  const userKeys = hasUserOverride ? normalizeKeyList(config[id]) : undefined;
+
+  return {
+    id,
+    description: definition.description ?? "",
+    defaultKeys: normalizeKeyList(definition.defaultKeys),
+    currentKeys: normalizeKeyList((manager as any).getKeys?.(id) ?? (hasUserOverride ? userKeys : definition.defaultKeys)),
+    userKeys,
+    hasUserOverride,
+  };
+}
+
+function keybindingActionItems(config: KeybindingsConfig = readKeybindingsConfig()): SelectItem[] {
+  return keybindingIds()
+    .map((id) => getKeybindingInfo(id, config))
+    .filter((info): info is KeybindingActionInfo => !!info)
+    .map((info) => ({
+      value: info.id,
+      label: info.id,
+      description: `${keyListDisplay(info.currentKeys)} · ${info.description || "No description"}${info.hasUserOverride ? " · overridden" : ""}`,
+    }));
+}
+
+function effectiveBindingsWithOverride(actionId: string, keys: KeyId[] | undefined, config: KeybindingsConfig): Map<string, KeyId[]> {
+  const bindings = new Map<string, KeyId[]>();
+
+  for (const id of keybindingIds()) {
+    const definition = keybindingDefinitions()[id];
+    if (!definition) continue;
+    const hasUserOverride = id === actionId || Object.prototype.hasOwnProperty.call(config, id);
+    const rawKeys = id === actionId ? keys : hasUserOverride ? config[id] : definition.defaultKeys;
+    bindings.set(id, normalizeKeyList(rawKeys));
+  }
+
+  return bindings;
+}
+
+function findKeyConflicts(actionId: string, keys: KeyId[], config: KeybindingsConfig): Array<{ key: KeyId; actionIds: string[] }> {
+  const nextBindings = effectiveBindingsWithOverride(actionId, keys, config);
+  const conflicts: Array<{ key: KeyId; actionIds: string[] }> = [];
+
+  for (const key of keys) {
+    const actionIds: string[] = [];
+    for (const [id, boundKeys] of nextBindings) {
+      if (id === actionId) continue;
+      if (boundKeys.includes(key)) actionIds.push(id);
+    }
+    if (actionIds.length > 0) conflicts.push({ key, actionIds });
+  }
+
+  return conflicts;
+}
+
+function applyKeybindingsConfig(config: KeybindingsConfig): void {
+  const manager = getKeybindings() as any;
+  if (typeof manager.reload === "function") {
+    manager.reload();
+    return;
+  }
+  if (typeof manager.setUserBindings === "function") {
+    manager.setUserBindings(config);
+  }
+}
+
 // ── Reusable UI components ───────────────────────────────────────────────
 
 function createSelectTheme(theme: any) {
@@ -420,6 +571,75 @@ class InlineInputDialog implements Component, Focusable {
   handleInput(data: string): void {
     this.input.handleInput(data);
   }
+}
+
+class KeyCaptureDialog implements Component {
+  private captured: KeyId | undefined;
+
+  constructor(
+    private title: string,
+    private theme: any,
+    private done: (value: KeyId | undefined) => void,
+  ) {}
+
+  render(width: number): string[] {
+    const container = new Container();
+    container.addChild(new DynamicBorder((s: string) => this.theme.fg("accent", s)));
+    container.addChild(new Text(this.theme.fg("accent", this.theme.bold(this.title)), 1, 0));
+    container.addChild(new Spacer(1));
+
+    if (this.captured) {
+      container.addChild(new Text(`Captured: ${this.theme.fg("success", this.captured)}`, 1, 0));
+      container.addChild(new Text(this.theme.fg("dim", "Enter confirm • Backspace retry • Esc cancel"), 1, 0));
+    } else {
+      container.addChild(new Text(this.theme.fg("warning", "Press the key combination to bind."), 1, 0));
+      container.addChild(new Text(this.theme.fg("dim", "Special keys like Esc and Enter are captured first, then confirmed."), 1, 0));
+    }
+
+    container.addChild(new DynamicBorder((s: string) => this.theme.fg("accent", s)));
+    return container.render(width);
+  }
+
+  invalidate(): void {}
+
+  handleInput(data: string): void {
+    if (this.captured) {
+      if (matchesKey(data, Key.enter)) {
+        this.done(this.captured);
+        return;
+      }
+      if (matchesKey(data, Key.backspace) || matchesKey(data, Key.delete)) {
+        this.captured = undefined;
+        return;
+      }
+      if (matchesKey(data, Key.escape)) {
+        this.done(undefined);
+        return;
+      }
+    }
+
+    const key = parseKey(data);
+    if (key) this.captured = key as KeyId;
+  }
+}
+
+async function captureKey(ctx: ExtensionCommandContext, title: string): Promise<KeyId | undefined> {
+  if (ctx.mode !== "tui") {
+    const raw = await ctx.ui.input(title, "ctrl+p");
+    return raw?.trim() ? raw.trim() as KeyId : undefined;
+  }
+
+  return await ctx.ui.custom<KeyId | undefined>((tui, theme, _kb, done) => {
+    const component = new KeyCaptureDialog(title, theme, done);
+    return {
+      render: (width: number) => component.render(width),
+      invalidate: () => component.invalidate(),
+      handleInput: (data: string) => {
+        component.handleInput(data);
+        tui.requestRender();
+      },
+    };
+  });
 }
 
 async function selectItem(
@@ -1508,6 +1728,128 @@ async function showCommonSettings(scope: ConfigScope, ctx: ExtensionCommandConte
   );
 }
 
+// ── Keybindings manager ──────────────────────────────────────────────────
+
+async function confirmKeybindingConflicts(
+  ctx: ExtensionCommandContext,
+  actionId: string,
+  keys: KeyId[],
+  config: KeybindingsConfig,
+): Promise<boolean> {
+  const conflicts = findKeyConflicts(actionId, keys, config);
+  if (conflicts.length === 0) return true;
+
+  const message = conflicts
+    .map((conflict) => `${conflict.key}: ${conflict.actionIds.join(", ")}`)
+    .join("\n");
+  return await ctx.ui.confirm("Keybinding conflict", `These keys are already used by other actions:\n\n${message}\n\nSave anyway?`);
+}
+
+async function saveKeybindingOverride(
+  ctx: ExtensionCommandContext,
+  actionId: string,
+  keys: KeyId[] | undefined,
+  options: { restore?: boolean; skipConflictCheck?: boolean } = {},
+): Promise<boolean> {
+  const config = readKeybindingsConfig();
+
+  if (!options.restore && !options.skipConflictCheck && keys && !(await confirmKeybindingConflicts(ctx, actionId, keys, config))) {
+    return false;
+  }
+
+  if (options.restore) delete config[actionId];
+  else config[actionId] = keys ?? [];
+
+  writeKeybindingsConfig(config);
+  applyKeybindingsConfig(config);
+  return true;
+}
+
+function keybindingEditorOptions(info: KeybindingActionInfo): SettingOption<KeybindingEditorAction>[] {
+  return [
+    { value: "replace", label: "Replace keys", description: "Capture one key and replace all bindings for this action" },
+    { value: "add", label: "Add key", description: "Capture one more key for this action" },
+    { value: "remove", label: "Remove key", description: info.currentKeys.length > 0 ? keyListDisplay(info.currentKeys) : "No keys to remove" },
+    { value: "disable", label: "Disable action", description: "Save an empty key list for this action" },
+    { value: "restore", label: "Restore default", description: `Default: ${keyListDisplay(info.defaultKeys)}` },
+    { value: "back", label: "Back", description: "Choose another action" },
+  ];
+}
+
+async function showKeybindingActionEditor(ctx: ExtensionCommandContext, actionId: string): Promise<void> {
+  while (true) {
+    const config = readKeybindingsConfig();
+    const info = getKeybindingInfo(actionId, config);
+    if (!info) {
+      notify(ctx, `Unknown keybinding action: ${actionId}`, "error");
+      return;
+    }
+
+    const title = `${actionId} · ${keyListDisplay(info.currentKeys)}`;
+    const selected = await selectOption<KeybindingEditorAction>(ctx, title, keybindingEditorOptions(info));
+    if (!selected || selected === "back") return;
+
+    if (selected === "replace") {
+      const key = await captureKey(ctx, `Replace ${actionId}`);
+      if (!key) continue;
+      if (await saveKeybindingOverride(ctx, actionId, [key])) {
+        notify(ctx, `${actionId} set to ${key}`, "info");
+      }
+      continue;
+    }
+
+    if (selected === "add") {
+      const key = await captureKey(ctx, `Add key for ${actionId}`);
+      if (!key) continue;
+      const nextKeys = normalizeKeyList([...info.currentKeys, key]);
+      if (await saveKeybindingOverride(ctx, actionId, nextKeys)) {
+        notify(ctx, `${actionId} keys: ${keyListDisplay(nextKeys)}`, "info");
+      }
+      continue;
+    }
+
+    if (selected === "remove") {
+      if (info.currentKeys.length === 0) {
+        notify(ctx, `${actionId} has no keys to remove`, "warning");
+        continue;
+      }
+      const key = await selectOption<KeyId>(ctx, `Remove key from ${actionId}`, info.currentKeys.map((currentKey) => ({
+        value: currentKey,
+        label: currentKey,
+      })));
+      if (!key) continue;
+      const nextKeys = info.currentKeys.filter((currentKey) => currentKey !== key);
+      if (await saveKeybindingOverride(ctx, actionId, nextKeys, { skipConflictCheck: true })) {
+        notify(ctx, `${actionId} keys: ${keyListDisplay(nextKeys)}`, "info");
+      }
+      continue;
+    }
+
+    if (selected === "disable") {
+      const ok = await ctx.ui.confirm("Disable action?", `Save an empty key list for ${actionId}?`);
+      if (!ok) continue;
+      if (await saveKeybindingOverride(ctx, actionId, [], { skipConflictCheck: true })) {
+        notify(ctx, `${actionId} disabled`, "info");
+      }
+      continue;
+    }
+
+    if (selected === "restore") {
+      if (await saveKeybindingOverride(ctx, actionId, undefined, { restore: true, skipConflictCheck: true })) {
+        notify(ctx, `${actionId} restored to default: ${keyListDisplay(info.defaultKeys)}`, "info");
+      }
+    }
+  }
+}
+
+async function showKeybindingSettings(ctx: ExtensionCommandContext): Promise<void> {
+  while (true) {
+    const selected = await selectItem(ctx, "Global Keybindings", keybindingActionItems());
+    if (!selected) return;
+    await showKeybindingActionEditor(ctx, selected);
+  }
+}
+
 // ── Resource path/source manager ─────────────────────────────────────────
 
 function resourceDescription(field: ResourceField): string {
@@ -1621,13 +1963,20 @@ async function showMainMenu(scope: ConfigScope, pi: ExtensionAPI, ctx: Extension
   while (true) {
     const currentModel = modelDefaultDisplay(scope, ctx.cwd);
     const currentThinking = thinkingDefaultDisplay(scope, ctx.cwd);
-    const selected = await selectOption<MainAction>(ctx, `${settingLabel(scope)} Config`, [
+    const mainItems: SettingOption<MainAction>[] = [
       { value: "model", label: "Model", description: `Default model: ${currentModel} · Enter set · Ctrl+U unset` },
       { value: "thinking", label: "Thinking level", description: `Default thinking: ${currentThinking} · Enter set · Ctrl+U unset` },
       { value: "common", label: "Common settings", description: "Theme, transport, queues, retry, compaction, terminal, editor, shell, resources" },
       { value: "resources", label: "Resource paths", description: "extensions, skills, prompts, themes, packages" },
-      { value: "reload", label: "Reload", description: "Reload keybindings, extensions, skills, prompts, and themes" },
-    ]);
+    ];
+
+    if (scope === "global") {
+      mainItems.push({ value: "keybindings", label: "Keybindings", description: "Edit global keyboard shortcuts interactively" });
+    }
+
+    mainItems.push({ value: "reload", label: "Reload", description: "Reload keybindings, extensions, skills, prompts, and themes" });
+
+    const selected = await selectOption<MainAction>(ctx, `${settingLabel(scope)} Config`, mainItems);
 
     if (!selected) return;
 
@@ -1643,6 +1992,9 @@ async function showMainMenu(scope: ConfigScope, pi: ExtensionAPI, ctx: Extension
         break;
       case "resources":
         if (await showResources(scope, ctx)) return;
+        break;
+      case "keybindings":
+        await showKeybindingSettings(ctx);
         break;
       case "reload":
         await ctx.reload();
