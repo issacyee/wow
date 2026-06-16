@@ -9,6 +9,7 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { buildStableLanguagePolicy } from "../wow/locale.ts";
+import { buildStableAnswerQualityPolicy } from "../wow/quality.ts";
 import { registerLocaleTips } from "./tips.ts";
 
 // ── Extension entry ──
@@ -18,7 +19,7 @@ export default function localeExtension(pi: ExtensionAPI): void {
 
   pi.on("before_agent_start", async (event) => {
     return {
-      systemPrompt: `${event.systemPrompt}\n\n${buildStableLanguagePolicy()}`,
+      systemPrompt: `${event.systemPrompt}\n\n${buildStableLanguagePolicy()}\n\n${buildStableAnswerQualityPolicy()}`,
     };
   });
 

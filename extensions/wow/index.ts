@@ -31,6 +31,11 @@ export {
 } from "./locale.ts";
 
 export {
+  buildAnswerQualityReminder,
+  buildStableAnswerQualityPolicy,
+} from "./quality.ts";
+
+export {
   AdaptiveLine,
   AdaptiveLines,
   AdaptiveToolLine,

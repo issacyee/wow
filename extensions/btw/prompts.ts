@@ -5,6 +5,7 @@
  * injected into the main pi agent context.
  */
 
+import { buildStableAnswerQualityPolicy } from "../wow/quality.ts";
 import type { BtwMessage, BtwTopic } from "./state.ts";
 
 const MAX_ANCHOR_CHARS = 6_000;
@@ -21,7 +22,9 @@ Rules:
 - Prefer concise, concrete explanations with examples when useful.
 - You cannot edit files, run tools, or change the main task state.
 - Do not claim that the main agent will remember this side conversation.
-- If something should affect the main task, say so explicitly as a short candidate conclusion the user may promote later.`;
+- If something should affect the main task, say so explicitly as a short candidate conclusion the user may promote later.
+
+${buildStableAnswerQualityPolicy()}`;
 
 export const BTW_PROMOTE_SYSTEM_PROMPT = `Summarize a side-channel BTW discussion for inclusion in the main coding-agent context.
 
@@ -30,7 +33,9 @@ Rules:
 - Keep it concise and task-relevant.
 - Preserve technical identifiers exactly.
 - Do not include the whole learning process; include only conclusions, constraints, or decisions that matter for future work.
-- Use the same language as the discussion.`;
+- Use the same language as the discussion.
+
+${buildStableAnswerQualityPolicy()}`;
 
 function truncate(text: string, maxChars: number): string {
   if (text.length <= maxChars) return text;
