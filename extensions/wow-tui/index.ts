@@ -13,6 +13,7 @@ import { WOW_TUI_CONFIG } from "./config.ts";
 import { registerConfigUI } from "./config-ui.ts";
 import { createEditorComponent } from "./editor.ts";
 import { installFooter } from "./footer.ts";
+import { registerPiNativeTips } from "./pi-tips.ts";
 import { registerFocusToolRendering } from "./tools.ts";
 import { registerWowTuiTips } from "./tips.ts";
 import { updateWorkflowWidgets } from "./widgets.ts";
@@ -33,8 +34,13 @@ function applyWowDefaultTheme(ctx: ExtensionContext): void {
   ctx.ui.setTheme(viego);
 }
 
+function registerWorkingTips(): void {
+  registerWowTuiTips();
+  registerPiNativeTips();
+}
+
 export default function wowTuiExtension(pi: ExtensionAPI): void {
-  const unregisterTips = registerWowTuiTips();
+  registerWorkingTips();
   registerConfigUI(pi);
 
   if (WOW_TUI_CONFIG.focusToolRendering) {
@@ -96,7 +102,6 @@ export default function wowTuiExtension(pi: ExtensionAPI): void {
     unsubscribeWorkflow = undefined;
     cleanupBtwAskTimer?.();
     cleanupBtwAskTimer = undefined;
-    unregisterTips();
 
     if (!ctx.hasUI) return;
 
