@@ -13,6 +13,7 @@ import { WOW_TUI_CONFIG } from "./config.ts";
 import { registerConfigUI } from "./config-ui.ts";
 import { createEditorComponent } from "./editor.ts";
 import { installFooter } from "./footer.ts";
+import { clearPinnedHistoryPeek, openHistoryPeek } from "./history-peek.ts";
 import { registerPiNativeTips } from "./pi-tips.ts";
 import { registerFocusToolRendering } from "./tools.ts";
 import { registerWowTuiTips } from "./tips.ts";
@@ -70,6 +71,10 @@ export default function wowTuiExtension(pi: ExtensionAPI): void {
 
     if (!ctx.hasUI) return;
 
+    if (WOW_TUI_CONFIG.historyPeek) {
+      clearPinnedHistoryPeek(ctx);
+    }
+
     applyWowDefaultTheme(ctx);
 
     if (WOW_TUI_CONFIG.workingTimers) {
@@ -86,7 +91,14 @@ export default function wowTuiExtension(pi: ExtensionAPI): void {
 
     if (WOW_TUI_CONFIG.editor) {
       ctx.ui.setEditorComponent((tui: any, theme: any, keybindings: any) =>
-        createEditorComponent(tui, theme, keybindings, ctx.ui.theme)
+        createEditorComponent(
+          tui,
+          theme,
+          keybindings,
+          ctx.ui.theme,
+          WOW_TUI_CONFIG.historyPeek ? () => { void openHistoryPeek(ctx); } : undefined,
+          WOW_TUI_CONFIG.historyPeek ? () => clearPinnedHistoryPeek(ctx) : undefined,
+        )
       );
     }
 
@@ -114,6 +126,9 @@ export default function wowTuiExtension(pi: ExtensionAPI): void {
     if (WOW_TUI_CONFIG.workflowWidgets) {
       ctx.ui.setStatus(WORKFLOW_STATE_TYPE, undefined);
       ctx.ui.setWidget(`${WORKFLOW_STATE_TYPE}-todos`, undefined);
+    }
+    if (WOW_TUI_CONFIG.historyPeek) {
+      clearPinnedHistoryPeek(ctx);
     }
     if (WOW_TUI_CONFIG.workingTimers) {
       workingTimerController?.shutdownSession();

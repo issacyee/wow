@@ -42,6 +42,7 @@ wow/
 │   │   ├── palette.ts       # Shared color palette
 │   │   ├── footer.ts        # Two-line footer compositor
 │   │   ├── editor.ts        # Composite editor: pi label, workflow border, IME conversion
+│   │   ├── history-peek.ts  # Ctrl+R current-branch history search overlay and pinned context widget
 │   │   ├── tools.ts         # Focus-style built-in tool rendering overrides
 │   │   ├── widgets.ts       # Workflow status/todo presenters
 │   │   ├── tips.ts          # Wow TUI working tips
@@ -147,6 +148,7 @@ Responsibilities:
 - Installs the composite editor via `ctx.ui.setEditorComponent()`.
 - Applies the editor `π` top-border label.
 - Applies workflow prefix border colors and Chinese IME prefix conversion.
+- Provides prompt-editor `Ctrl+R` History Peek for current-branch visible chat history search, match highlighting, `Enter` pinned nearby context, and `Ctrl+Q` pinned peek clearing from either the prompt editor or search overlay without inserting history into the prompt or provider context.
 - Presents workflow status and todo widgets by subscribing to workflow state.
 - Rotates feature-owned usage tips in the Working message without writing them to session or provider context.
 - Re-registers built-in tools with focus-style minimal rendering.

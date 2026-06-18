@@ -6,7 +6,7 @@
  */
 
 import { CustomEditor } from "@earendil-works/pi-coding-agent";
-import { visibleWidth } from "@earendil-works/pi-tui";
+import { Key, matchesKey, visibleWidth } from "@earendil-works/pi-tui";
 import type { ColorFn } from "./palette.ts";
 import { wowColor } from "./theme.ts";
 
@@ -38,7 +38,14 @@ export class WowCompositeEditor extends CustomEditor {
   private _storedBorderColor!: ColorFn;
   private _modeBorderColor: ColorFn | null = null;
 
-  constructor(tui: any, theme: any, keybindings: any, private readonly wowTheme: any) {
+  constructor(
+    tui: any,
+    theme: any,
+    keybindings: any,
+    private readonly wowTheme: any,
+    private readonly onHistoryPeek?: () => void,
+    private readonly onClearHistoryPeek?: () => void,
+  ) {
     super(tui, theme, keybindings);
     this._storedBorderColor = theme.borderColor;
 
@@ -51,6 +58,16 @@ export class WowCompositeEditor extends CustomEditor {
   }
 
   handleInput(data: string): void {
+    if (matchesKey(data, Key.ctrl("r"))) {
+      this.onHistoryPeek?.();
+      return;
+    }
+
+    if (matchesKey(data, Key.ctrl("q"))) {
+      this.onClearHistoryPeek?.();
+      return;
+    }
+
     if (data.length === 1 && (data === "\uFF1F" || data === "\uFF01" || data === "\uFFE5")) {
       const text = this.getText();
       const cursor = this.getCursor();
@@ -100,6 +117,13 @@ export class WowCompositeEditor extends CustomEditor {
   }
 }
 
-export function createEditorComponent(tui: any, theme: any, keybindings: any, wowTheme: any): WowCompositeEditor {
-  return new WowCompositeEditor(tui, theme, keybindings, wowTheme);
+export function createEditorComponent(
+  tui: any,
+  theme: any,
+  keybindings: any,
+  wowTheme: any,
+  onHistoryPeek?: () => void,
+  onClearHistoryPeek?: () => void,
+): WowCompositeEditor {
+  return new WowCompositeEditor(tui, theme, keybindings, wowTheme, onHistoryPeek, onClearHistoryPeek);
 }

@@ -120,7 +120,8 @@ from `package.json` disables these visuals while leaving workflow/cache/tool log
 It owns package-level singleton TUI resources:
 
 - **Footer compositor**: custom two-line footer with clickable CWD, git branch, model/thinking level, context usage bar, token/cache/cost/billing stats, and extension statuses
-- **Composite editor**: `π` top-border label, workflow prefix border colors, and Chinese IME full-width prefix conversion (`？` `！` `￥` → `?` `!` `$`)
+- **Composite editor**: `π` top-border label, workflow prefix border colors, Chinese IME full-width prefix conversion (`？` `！` `￥` → `?` `!` `$`), and prompt-editor `Ctrl+R` History Peek
+- **History Peek**: search the current branch's visible chat history while composing a prompt. Matches are highlighted, `Enter` pins nearby context above the editor for reference, `Ctrl+Q` clears the pinned peek from either the prompt editor or the search overlay, and no history text is inserted into the prompt or provider context
 - **Workflow presenter**: status indicator and todo widget based on workflow state
 - **Working tips carousel**: while the agent is working, concise usage tips rotate in the Working message (`Working 0ms • Tip: ...`) without entering the model context
 - **BTW message rendering**: custom rendering for `/btw:*` side-channel messages
@@ -335,6 +336,7 @@ wow/
 │   │   ├── palette.ts       # Shared color palette
 │   │   ├── footer.ts        # Two-line footer compositor
 │   │   ├── editor.ts        # Composite editor
+│   │   ├── history-peek.ts  # Ctrl+R current-branch history search overlay
 │   │   ├── tools.ts         # Focus-style built-in tool rendering overrides
 │   │   ├── widgets.ts       # Workflow status/todo presenters
 │   │   ├── tips.ts          # Wow TUI working tips

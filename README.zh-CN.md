@@ -96,7 +96,8 @@ BTW 使用独立 LLM 调用，并把 topic state 作为 custom entries 持久化
 它拥有包级别的 TUI 单例资源：
 
 - **Footer compositor**：自定义两行 footer，包含可点击 CWD、git branch、model/thinking level、context usage bar、token/cache/cost/billing stats 和 extension statuses
-- **Composite editor**：`π` 顶部边框 label、workflow prefix 边框颜色、中文 IME 全角前缀转换（`？` `！` `￥` → `?` `!` `$`）
+- **Composite editor**：`π` 顶部边框 label、workflow prefix 边框颜色、中文 IME 全角前缀转换（`？` `！` `￥` → `?` `!` `$`），以及 prompt editor 内的 `Ctrl+R` History Peek
+- **History Peek**：在编写 prompt 时搜索当前 branch 的可见聊天历史。匹配内容会高亮，`Enter` 会把附近上下文 pin 到编辑器上方供参考，在 prompt editor 或 search overlay 内按 `Ctrl+Q` 可清除 pinned peek，并且不会把历史文本插入 prompt 或 provider context
 - **Workflow presenter**：基于 workflow state 展示 status indicator 和 todo widget
 - **Working tips carousel**：agent working 时在 Working message 中轮播精简使用提示（`Working 0ms • Tip: ...`），不会进入模型上下文
 - **BTW message rendering**：为 `/btw:*` side-channel messages 提供自定义渲染
@@ -291,6 +292,7 @@ wow/
 │   │   ├── palette.ts       # Shared color palette
 │   │   ├── footer.ts        # Two-line footer compositor
 │   │   ├── editor.ts        # Composite editor
+│   │   ├── history-peek.ts  # Ctrl+R current-branch history search overlay
 │   │   ├── tools.ts         # Focus-style built-in tool rendering overrides
 │   │   ├── widgets.ts       # Workflow status/todo presenters
 │   │   ├── tips.ts          # Wow TUI working tips

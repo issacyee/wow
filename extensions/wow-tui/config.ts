@@ -13,4 +13,5 @@ export const WOW_TUI_CONFIG = {
   btwRendering: true,
   workingTimers: true,
   workingTips: true,
+  historyPeek: true,
 } as const;
