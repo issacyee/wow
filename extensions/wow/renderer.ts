@@ -12,7 +12,7 @@
  *   renderResult: focusRenderResult,
  */
 
-import { Container, truncateToWidth, visibleWidth, type Component } from "@earendil-works/pi-tui";
+import { Container, Text, truncateToWidth, visibleWidth, type Component } from "@earendil-works/pi-tui";
 import { fitEnd, linkUrlAdaptive } from "./paths.ts";
 
 const DEFAULT_PADDING_X = 1;
@@ -207,16 +207,38 @@ export function focusRenderCall(
   );
 }
 
+function extractTextResult(result: any): string {
+  const content = Array.isArray(result?.content) ? result.content : [];
+  return content
+    .filter((item: any) => item?.type === "text" && typeof item.text === "string")
+    .map((item: any) => item.text)
+    .join("\n")
+    .trimEnd();
+}
+
 /**
  * Generic focus-style renderResult.
- * Returns an empty container — tool output is sent to the LLM,
- * no need to display full results in TUI.
+ * Keeps successful results hidden by default, but restores details when the
+ * tool row is expanded (Ctrl+O) or when the tool result is an error.
  */
 export function focusRenderResult(
-  _result: any,
-  _options: any,
-  _theme: any,
-  _context: any,
-): Container {
-  return new Container();
+  result: any,
+  options: any,
+  theme: any,
+  context: any,
+): Component {
+  if (!options?.expanded && !context?.isError) return new Container();
+
+  const output = extractTextResult(result);
+  if (!output) return new Container();
+
+  const text = context?.lastComponent instanceof Text
+    ? context.lastComponent
+    : new Text("", 0, 0);
+  const styledOutput = output
+    .split("\n")
+    .map((line) => theme.fg("toolOutput", line))
+    .join("\n");
+  text.setText(`\n${styledOutput}`);
+  return text;
 }

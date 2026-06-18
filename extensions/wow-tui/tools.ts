@@ -2,22 +2,29 @@
  * Wow TUI focus-style built-in tool rendering.
  *
  * Re-registers built-in tools with the same execution behavior but a minimal
- * visual shell: one dim line for the call and no result preview. Also installs
- * the same render adapter for webfetch before the webfetch extension registers
- * its logic tool.
+ * visual shell: one dim line by default, with native details available when the
+ * tool row is expanded. Also installs the same render adapter for webfetch
+ * before the webfetch extension registers its logic tool.
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
   createReadTool,
+  createReadToolDefinition,
   createBashTool,
+  createBashToolDefinition,
   createEditTool,
+  createEditToolDefinition,
   createWriteTool,
+  createWriteToolDefinition,
   createGrepTool,
+  createGrepToolDefinition,
   createFindTool,
+  createFindToolDefinition,
   createLsTool,
+  createLsToolDefinition,
 } from "@earendil-works/pi-coding-agent";
-import { Container, visibleWidth } from "@earendil-works/pi-tui";
+import { Container, visibleWidth, type Component } from "@earendil-works/pi-tui";
 import { setCodeGraphRenderOptions } from "../codegraph/index.ts";
 import { setWebfetchRenderOptions } from "../webfetch/index.ts";
 import { fitCommand, fitEnd, fitPath, linkPathAdaptive } from "../wow/paths.ts";
@@ -33,7 +40,26 @@ interface ToolSet {
   ls: ReturnType<typeof createLsTool>;
 }
 
+interface NativeToolSet {
+  read: ReturnType<typeof createReadToolDefinition>;
+  bash: ReturnType<typeof createBashToolDefinition>;
+  edit: ReturnType<typeof createEditToolDefinition>;
+  write: ReturnType<typeof createWriteToolDefinition>;
+  grep: ReturnType<typeof createGrepToolDefinition>;
+  find: ReturnType<typeof createFindToolDefinition>;
+  ls: ReturnType<typeof createLsToolDefinition>;
+}
+
+type BuiltInToolName = keyof NativeToolSet;
+
+interface NativeRendererState {
+  nativeCallComponent?: Component;
+  nativeResultComponent?: Component;
+  [key: string]: any;
+}
+
 const toolCache = new Map<string, ToolSet>();
+const nativeToolCache = new Map<string, NativeToolSet>();
 const UNBOUNDED_WIDTH = Number.MAX_SAFE_INTEGER;
 
 function createToolSet(cwd: string): ToolSet {
@@ -48,6 +74,18 @@ function createToolSet(cwd: string): ToolSet {
   };
 }
 
+function createNativeToolSet(cwd: string): NativeToolSet {
+  return {
+    read: createReadToolDefinition(cwd),
+    bash: createBashToolDefinition(cwd),
+    edit: createEditToolDefinition(cwd),
+    write: createWriteToolDefinition(cwd),
+    grep: createGrepToolDefinition(cwd),
+    find: createFindToolDefinition(cwd),
+    ls: createLsToolDefinition(cwd),
+  };
+}
+
 function getTools(cwd: string): ToolSet {
   let tools = toolCache.get(cwd);
   if (!tools) {
@@ -57,8 +95,41 @@ function getTools(cwd: string): ToolSet {
   return tools;
 }
 
+function getNativeTools(cwd: string): NativeToolSet {
+  let tools = nativeToolCache.get(cwd);
+  if (!tools) {
+    tools = createNativeToolSet(cwd);
+    nativeToolCache.set(cwd, tools);
+  }
+  return tools;
+}
+
 function renderDimToolLine(theme: any, buildLine: (width: number) => string): AdaptiveToolLine {
   return new AdaptiveToolLine(buildLine, (text) => theme.fg("dim", text));
+}
+
+function nativeRenderContext(context: any, slot: "call" | "result"): any {
+  const state = context.state as NativeRendererState;
+  const lastComponent = slot === "call" ? state.nativeCallComponent : state.nativeResultComponent;
+  return { ...context, lastComponent };
+}
+
+function renderNativeCall(toolName: BuiltInToolName, args: any, theme: any, context: any): Component {
+  const native = getNativeTools(context.cwd ?? process.cwd())[toolName];
+  const renderContext = nativeRenderContext(context, "call");
+  const component = native.renderCall?.(args, theme, renderContext) ?? new Container();
+  (context.state as NativeRendererState).nativeCallComponent = component;
+  return component;
+}
+
+function renderNativeResult(toolName: BuiltInToolName, result: any, options: any, theme: any, context: any): Component {
+  if (!options?.expanded && !context?.isError) return new Container();
+
+  const native = getNativeTools(context.cwd ?? process.cwd())[toolName];
+  const renderContext = nativeRenderContext(context, "result");
+  const component = native.renderResult?.(result, options, theme, renderContext) ?? new Container();
+  (context.state as NativeRendererState).nativeResultComponent = component;
+  return component;
 }
 
 function rangeSuffix(args: { offset?: number; limit?: number }): string {
@@ -153,7 +224,6 @@ function findLine(args: any, cwd: string, width: number): string {
 }
 
 const defaultTools = createToolSet(process.cwd());
-const emptyResult = () => new Container();
 
 export function registerFocusToolRendering(pi: ExtensionAPI): void {
   pi.registerTool({
@@ -166,12 +236,16 @@ export function registerFocusToolRendering(pi: ExtensionAPI): void {
       return getTools(ctx.cwd).read.execute(toolCallId, params, signal, onUpdate);
     },
     renderCall(args, theme, context) {
+      if (context?.expanded) return renderNativeCall("read", args, theme, context);
+
       const cwd = context?.cwd ?? process.cwd();
       const path = args.path || "";
       const suffix = rangeSuffix(args);
       return renderDimToolLine(theme, (width) => pathLine("read ", path, cwd, width, suffix));
     },
-    renderResult: emptyResult,
+    renderResult(result, options, theme, context) {
+      return renderNativeResult("read", result, options, theme, context);
+    },
   });
 
   pi.registerTool({
@@ -183,7 +257,9 @@ export function registerFocusToolRendering(pi: ExtensionAPI): void {
     async execute(toolCallId, params, signal, onUpdate, ctx) {
       return getTools(ctx.cwd).bash.execute(toolCallId, params, signal, onUpdate);
     },
-    renderCall(args, theme) {
+    renderCall(args, theme, context) {
+      if (context?.expanded) return renderNativeCall("bash", args, theme, context);
+
       const command = args.command || "";
       return renderDimToolLine(theme, (width) => {
         const prefix = "$ ";
@@ -194,7 +270,9 @@ export function registerFocusToolRendering(pi: ExtensionAPI): void {
         return `${prefix}${fitCommand(collapsed, Math.max(1, width - visibleWidth(prefix)))}`;
       });
     },
-    renderResult: emptyResult,
+    renderResult(result, options, theme, context) {
+      return renderNativeResult("bash", result, options, theme, context);
+    },
   });
 
   pi.registerTool({
@@ -207,13 +285,17 @@ export function registerFocusToolRendering(pi: ExtensionAPI): void {
       return getTools(ctx.cwd).edit.execute(toolCallId, params, signal, onUpdate);
     },
     renderCall(args, theme, context) {
+      if (context?.expanded) return renderNativeCall("edit", args, theme, context);
+
       const cwd = context?.cwd ?? process.cwd();
       const path = args.path || "";
       const editCount = args.edits && Array.isArray(args.edits) ? args.edits.length : 1;
       const suffix = editCount > 1 ? ` (${editCount} edits)` : "";
       return renderDimToolLine(theme, (width) => pathLine("edit ", path, cwd, width, suffix));
     },
-    renderResult: emptyResult,
+    renderResult(result, options, theme, context) {
+      return renderNativeResult("edit", result, options, theme, context);
+    },
   });
 
   pi.registerTool({
@@ -226,11 +308,15 @@ export function registerFocusToolRendering(pi: ExtensionAPI): void {
       return getTools(ctx.cwd).write.execute(toolCallId, params, signal, onUpdate);
     },
     renderCall(args, theme, context) {
+      if (context?.expanded) return renderNativeCall("write", args, theme, context);
+
       const cwd = context?.cwd ?? process.cwd();
       const path = args.path || "";
       return renderDimToolLine(theme, (width) => pathLine("write ", path, cwd, width));
     },
-    renderResult: emptyResult,
+    renderResult(result, options, theme, context) {
+      return renderNativeResult("write", result, options, theme, context);
+    },
   });
 
   pi.registerTool({
@@ -243,10 +329,14 @@ export function registerFocusToolRendering(pi: ExtensionAPI): void {
       return getTools(ctx.cwd).grep.execute(toolCallId, params, signal, onUpdate);
     },
     renderCall(args, theme, context) {
+      if (context?.expanded) return renderNativeCall("grep", args, theme, context);
+
       const cwd = context?.cwd ?? process.cwd();
       return renderDimToolLine(theme, (width) => grepLine(args, cwd, width));
     },
-    renderResult: emptyResult,
+    renderResult(result, options, theme, context) {
+      return renderNativeResult("grep", result, options, theme, context);
+    },
   });
 
   pi.registerTool({
@@ -259,10 +349,14 @@ export function registerFocusToolRendering(pi: ExtensionAPI): void {
       return getTools(ctx.cwd).find.execute(toolCallId, params, signal, onUpdate);
     },
     renderCall(args, theme, context) {
+      if (context?.expanded) return renderNativeCall("find", args, theme, context);
+
       const cwd = context?.cwd ?? process.cwd();
       return renderDimToolLine(theme, (width) => findLine(args, cwd, width));
     },
-    renderResult: emptyResult,
+    renderResult(result, options, theme, context) {
+      return renderNativeResult("find", result, options, theme, context);
+    },
   });
 
   pi.registerTool({
@@ -275,6 +369,8 @@ export function registerFocusToolRendering(pi: ExtensionAPI): void {
       return getTools(ctx.cwd).ls.execute(toolCallId, params, signal, onUpdate);
     },
     renderCall(args, theme, context) {
+      if (context?.expanded) return renderNativeCall("ls", args, theme, context);
+
       const cwd = context?.cwd ?? process.cwd();
       const path = args.path && args.path !== "." ? String(args.path) : ".";
       return renderDimToolLine(theme, (width) => {
@@ -282,7 +378,9 @@ export function registerFocusToolRendering(pi: ExtensionAPI): void {
         return pathLine("ls ", path, cwd, width);
       });
     },
-    renderResult: emptyResult,
+    renderResult(result, options, theme, context) {
+      return renderNativeResult("ls", result, options, theme, context);
+    },
   });
 
   setCodeGraphRenderOptions({
