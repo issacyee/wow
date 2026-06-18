@@ -216,6 +216,16 @@ function uniqueTokens(query: string): string[] {
   return Array.from(new Set(tokenizeQuery(query))).filter(Boolean);
 }
 
+function firstMatchingLineIndex(lines: string[], query: string): number {
+  const tokens = uniqueTokens(query);
+  if (tokens.length === 0) return -1;
+
+  return lines.findIndex((line) => {
+    const normalized = line.toLowerCase();
+    return tokens.some((token) => normalized.includes(token));
+  });
+}
+
 function findMatchRanges(text: string, tokens: string[]): MatchRange[] {
   if (tokens.length === 0 || !text) return [];
 
@@ -281,24 +291,20 @@ function highlightMatches(
   return parts.join("");
 }
 
-function renderBodyLines(
+function renderRawBodyLines(
   theme: any,
-  text: string,
+  rawLines: string[],
   query: string,
   width: number,
   maxLines: number,
-  baseStyle: (segment: string) => string = (segment) => segment,
-): string[] {
-  if (maxLines <= 0) return [];
-
-  const body = cleanText(text);
-  if (!body) return [];
-
-  const rawLines = body.split("\n");
+  baseStyle: (segment: string) => string,
+  startIndex = 0,
+  endIndex = rawLines.length,
+): { lines: string[]; truncated: boolean } {
   const lines: string[] = [];
   let truncated = false;
 
-  outer: for (let rawIndex = 0; rawIndex < rawLines.length; rawIndex++) {
+  outer: for (let rawIndex = startIndex; rawIndex < endIndex; rawIndex++) {
     const rawLine = rawLines[rawIndex]!;
 
     if (rawLine.trim().length === 0) {
@@ -321,16 +327,107 @@ function renderBodyLines(
     }
   }
 
-  if (truncated) {
-    const last = lines[lines.length - 1];
-    if (last !== undefined && visibleWidth(last) > 0) {
-      lines[lines.length - 1] = truncateToWidth(`${last} …`, width, "…");
-    } else if (lines.length > 0) {
-      lines[lines.length - 1] = truncateToWidth("…", width, "");
-    }
+  return { lines, truncated };
+}
+
+function markTruncatedBodyLines(lines: string[], width: number): void {
+  const last = lines[lines.length - 1];
+  if (last !== undefined && visibleWidth(last) > 0) {
+    lines[lines.length - 1] = truncateToWidth(`${last} …`, width, "…");
+  } else if (lines.length > 0) {
+    lines[lines.length - 1] = truncateToWidth("…", width, "");
   }
+}
+
+function firstMatchRange(text: string, query: string): MatchRange | undefined {
+  return findMatchRanges(text, uniqueTokens(query))[0];
+}
+
+function focusLineAroundMatch(line: string, query: string, width: number, maxVisualLines: number): string {
+  const range = firstMatchRange(line, query);
+  if (!range) return line;
+
+  const budget = Math.max(20, width * Math.max(1, maxVisualLines));
+  if (visibleWidth(line) <= budget) return line;
+
+  const matchLength = Math.max(1, range.end - range.start);
+  const contextChars = Math.max(8, Math.floor((budget - matchLength) / 2));
+  const start = Math.max(0, range.start - contextChars);
+  const end = Math.min(line.length, Math.max(range.end + contextChars, start + budget));
+  const prefix = start > 0 ? "…" : "";
+  const suffix = end < line.length ? "…" : "";
+
+  return `${prefix}${line.slice(start, end)}${suffix}`;
+}
+
+function renderBodyLines(
+  theme: any,
+  text: string,
+  query: string,
+  width: number,
+  maxLines: number,
+  baseStyle: (segment: string) => string = (segment) => segment,
+): string[] {
+  if (maxLines <= 0) return [];
+
+  const body = cleanText(text);
+  if (!body) return [];
+
+  const rawLines = body.split("\n");
+  const { lines, truncated } = renderRawBodyLines(theme, rawLines, query, width, maxLines, baseStyle);
+  if (truncated) markTruncatedBodyLines(lines, width);
 
   return lines;
+}
+
+function renderBodyLinesAroundMatch(
+  theme: any,
+  text: string,
+  query: string,
+  width: number,
+  maxLines: number,
+  baseStyle: (segment: string) => string = (segment) => segment,
+): string[] {
+  if (maxLines <= 0) return [];
+
+  const body = cleanText(text);
+  if (!body) return [];
+
+  const rawLines = body.split("\n");
+  const matchIndex = firstMatchingLineIndex(rawLines, query);
+  if (matchIndex < 0) return renderBodyLines(theme, text, query, width, maxLines, baseStyle);
+
+  const contextBefore = Math.min(2, Math.max(0, Math.floor((maxLines - 1) / 3)));
+  const startIndex = Math.max(0, matchIndex - contextBefore);
+  const includeLeadingEllipsis = startIndex > 0 && maxLines > 1;
+  const beforeBudget = Math.min(
+    contextBefore,
+    Math.max(0, maxLines - (includeLeadingEllipsis ? 1 : 0) - 1),
+  );
+  const lines: string[] = [];
+
+  if (includeLeadingEllipsis) lines.push(truncateToWidth("…", width, ""));
+
+  if (beforeBudget > 0 && startIndex < matchIndex) {
+    const before = renderRawBodyLines(theme, rawLines, query, width, beforeBudget, baseStyle, startIndex, matchIndex);
+    if (before.truncated) markTruncatedBodyLines(before.lines, width);
+    lines.push(...before.lines);
+  }
+
+  const focusedLines = [...rawLines];
+  focusedLines[matchIndex] = focusLineAroundMatch(
+    focusedLines[matchIndex]!,
+    query,
+    width,
+    Math.max(1, maxLines - lines.length),
+  );
+
+  const remaining = Math.max(1, maxLines - lines.length);
+  const after = renderRawBodyLines(theme, focusedLines, query, width, remaining, baseStyle, matchIndex);
+  lines.push(...after.lines);
+  if (after.truncated) markTruncatedBodyLines(lines, width);
+
+  return lines.slice(0, maxLines);
 }
 
 function buildSnippet(text: string, tokens: string[]): string {
@@ -648,7 +745,7 @@ function pushPinnedMessageBlock(
   selection: HistoryPeekSelection,
   theme: any,
   width: number,
-  options: { selected?: boolean; marker: string; maxBodyLines: number },
+  options: { selected?: boolean; marker: string; maxBodyLines: number; aroundMatch?: boolean },
 ): void {
   const selected = options.selected === true;
   const meta = `${options.marker} ${itemMeta(item)}`;
@@ -658,7 +755,9 @@ function pushPinnedMessageBlock(
 
   const bodyWidth = Math.max(1, width - 2);
   const baseStyle = selected ? (segment: string) => segment : (segment: string) => theme.fg("dim", segment);
-  const bodyLines = renderBodyLines(theme, item.text, selection.query, bodyWidth, options.maxBodyLines, baseStyle);
+  const bodyLines = options.aroundMatch
+    ? renderBodyLinesAroundMatch(theme, item.text, selection.query, bodyWidth, options.maxBodyLines, baseStyle)
+    : renderBodyLines(theme, item.text, selection.query, bodyWidth, options.maxBodyLines, baseStyle);
   for (const line of bodyLines) {
     lines.push(truncateToWidth(`  ${line}`, width, "…"));
   }
@@ -671,7 +770,11 @@ function renderPinnedLines(selection: HistoryPeekSelection, theme: any, width: n
   const after = selectedIndex >= 0 ? selection.context[selectedIndex + 1] : undefined;
 
   const footer = theme.fg("dim", truncateToWidth("Ctrl+R search again · Ctrl+Q clears pinned peek", width, "…"));
+  const query = selection.query.trim();
   lines.push(theme.fg("accent", truncateToWidth(selectedContextTitle(selection), width, "…")));
+  if (query) {
+    lines.push(theme.fg("muted", truncateToWidth(`Search: ${query}`, width, "…")));
+  }
 
   if (before) {
     pushPinnedMessageBlock(lines, before, selection, theme, width, {
@@ -684,6 +787,7 @@ function renderPinnedLines(selection: HistoryPeekSelection, theme: any, width: n
     selected: true,
     marker: "▶",
     maxBodyLines: PINNED_SELECTED_BODY_LINES,
+    aroundMatch: true,
   });
 
   if (after) {
