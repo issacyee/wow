@@ -64,12 +64,9 @@ when a prefix is used.
 - **Prefix-cache friendly**: the extension never mutates the system prompt, never switches active tools, filters stale workflow context messages from provider context, and stores state in custom entries outside LLM context
 - **UI-independent logic**: workflow state is exposed from `state.ts`; editor colors, status, and todo widgets are presented by `wow-tui`
 
-### Locale — Stable Same-Language Policy
+### Locale — OS-Locale Language Policy
 
-Adds a byte-stable language policy to the system prompt: reply in the same language
-the user is using, while preserving technical identifiers exactly. The extension no
-longer injects OS-specific hidden messages every turn, which keeps the prompt prefix
-stable for provider prefix-cache/APC systems.
+Appends an OS-locale-backed hard `[LANGUAGE]` directive to the system prompt: the directive names the target language explicitly (e.g. `中文（简体）`) and instructs the model to keep technical identifiers, code, paths, commands, and commit messages in their original language. This is more reliable than inferring the user's language from each turn, which misfires when inputs mix natural language with English code/paths/commands. On a single machine the detected OS locale is stable across turns, so the prompt prefix cache is unaffected. `localeToDisplayName()` normalizes script subtags so Simplified/Traditional Chinese are distinguished accurately.
 
 ### Git Commit — `/git-commit`
 
@@ -248,7 +245,7 @@ it serves purely as an import source for common functions.
 
 | Sub-module    | Exports                                                                                                                             | Used by                           |
 | ------------- | ----------------------------------------------------------------------------------------------------------------------------------- | --------------------------------- |
-| `locale.ts`   | `detectLocale`, `detectPrimaryLocale`, `localeToDisplayName`, `buildLanguageInstruction`, `buildStableLanguagePolicy`, `LOCALE_MAP` | locale, local UI/template helpers |
+| `locale.ts`   | `detectLocale`, `detectPrimaryLocale`, `localeToDisplayName`, `buildLanguageInstruction`, `LOCALE_MAP` | locale, local UI/template helpers |
 | `renderer.ts` | `createFocusRenderCall`, `focusRenderCall`, `focusRenderResult`                                                                     | webfetch, custom tools            |
 | `paths.ts`    | `shortenPath`, `linkPath`, `shortenCommand`                                                                                         | wow-tui                           |
 | `html.ts`     | `convertHTMLToMarkdown`, `extractTextFromHTML`, `stripTags`, `isRasterImage`, `STRIP_TAGS`                                          | webfetch                          |
@@ -294,7 +291,7 @@ import { detectLocale, createFocusRenderCall, shortenPath } from "../wow/index.t
 - **Code style**: TypeScript, following existing conventions
 - **Shared utilities**: all reusable functions live in `extensions/wow/` — import from there, don't duplicate
 - **Visual composition**: package visuals live in `extensions/wow-tui/`; feature logic should expose UI-independent state
-- **Prefix-cache safety**: do not add per-turn timestamps/random IDs/locale-specific text to the system prompt; do not switch active tools for modes; truncate custom tool output before returning it to the LLM
+- **Prefix-cache safety**: do not add per-turn timestamps/random IDs to the system prompt; do not switch active tools for modes; truncate custom tool output before returning it to the LLM
 
 ### Project Structure
 
@@ -308,15 +305,15 @@ wow/
 ├── extensions/
 │   ├── wow/                 # Base extension — shared utilities
 │   │   ├── index.ts         # Extension entry (no-op), unified re-export of all sub-modules
-│   │   ├── locale.ts        # Locale detection and stable language policy utilities
+│   │   ├── locale.ts        # Locale detection and language instruction utilities
 │   │   ├── renderer.ts      # Focus-style dim rendering helpers
 │   │   ├── paths.ts         # Path shortening & OSC 8 hyperlink helpers
 │   │   ├── html.ts          # HTML → Markdown/Text conversion helpers
 │   │   ├── shell.ts         # Sync command execution wrappers
 │   │   ├── safe.ts          # Read-only bash command safety checks
 │   │   └── tips.ts          # Shared working-tip registry
-│   ├── locale/              # Stable same-language policy
-│   │   ├── index.ts         # Appends byte-stable language policy to system prompt
+│   ├── locale/              # OS-locale language policy
+│   │   ├── index.ts         # Appends OS-locale hard language directive to system prompt
 │   │   └── tips.ts          # Locale working tips
 │   ├── human-led-coding-workflow/ # ?/??/?!/$ human-led workflow logic
 │   │   ├── index.ts         # Prefix routing, context injection, tool gates, state persistence

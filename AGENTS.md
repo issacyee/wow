@@ -20,8 +20,8 @@ wow/
 │   │   ├── shell.ts         # Sync command execution wrappers
 │   │   ├── safe.ts          # Read-only bash safety check
 │   │   └── tips.ts          # Shared working-tip registry
-│   ├── locale/              # Stable same-language policy via before_agent_start
-│   │   ├── index.ts         # Appends byte-stable language policy to the system prompt
+│   ├── locale/              # OS-locale language policy via before_agent_start
+│   │   ├── index.ts         # Appends OS-locale hard language directive to the system prompt
 │   │   └── tips.ts          # Locale working tips
 │   ├── human-led-coding-workflow/ # ?/??/?!/$ human-led coding workflow logic
 │   │   ├── index.ts         # Prefix routing, context injection, tool gates, state persistence
@@ -79,8 +79,9 @@ Code, comments, config, documentation (including this file), commit messages,
 and other technical content use English.
 
 > AI response language is handled automatically by the `locale` extension —
-> it appends a byte-stable same-language policy to the system prompt via
-> `before_agent_start`, avoiding per-turn OS-locale text that would hurt prefix caching.
+> it appends an OS-locale-backed hard language directive to the system prompt
+> via `before_agent_start`. On a single machine the detected OS locale is
+> stable across turns, so the prompt prefix cache is unaffected.
 
 ### Technical Conventions
 
@@ -95,7 +96,7 @@ and other technical content use English.
 - **Visual shell boundary**: `extensions/wow-tui/` is the only package extension that should own visual composition: singleton TUI resources (`ctx.ui.setFooter()`, `ctx.ui.setEditorComponent()`, status/widgets), package-wide tool rendering overrides, and custom message renderers. Logic extensions should expose state, types, commands, hooks, and behavior, not visual presentation.
 - Logic extensions must not import runtime TUI components from `@earendil-works/pi-tui` (`Text`, `Box`, `Container`, etc.) or call `pi.registerMessageRenderer()` / define tool `renderCall` or `renderResult`. Feature-specific renderers belong in `extensions/wow-tui/` and should consume exported state/types from logic extensions. Type-only imports for command completions are allowed when there is no coding-agent type export.
 - Command-level user interactions (`ctx.ui.select()`, `ctx.ui.confirm()`, `ctx.ui.input()`, `ctx.ui.notify()`) are allowed in logic extensions when needed to complete a command; they must not install persistent visual shell resources.
-- **Prefix-cache safety**: preserve byte-stable prompt prefixes. Do not add per-turn timestamps, random IDs, counters, or OS-locale strings to the system prompt. Do not switch active tools for workflow modes; enforce permissions with `tool_call` gates. Truncate custom tool outputs before returning them to the LLM.
+- **Prefix-cache safety**: preserve byte-stable prompt prefixes. Do not add per-turn timestamps, random IDs, or counters to the system prompt. Do not switch active tools for workflow modes; enforce permissions with `tool_call` gates. Truncate custom tool outputs before returning them to the LLM.
 - Keep the read-only bash allowlist in `extensions/wow/safe.ts` comprehensive — omissions may cause data loss in read-only workflow modes.
 - The unified editor in `wow-tui` converts full-width `？`/`！`/`￥` to half-width `?`/`!`/`$` at workflow-prefix positions so Chinese IME users don't need to toggle input method.
 - The editor border color is intercepted via `Object.defineProperty` on `borderColor` to overlay workflow prefix colors (purple/orange/yellow/blue) while preserving the framework's native border color for thinking/bash mode.
@@ -107,7 +108,7 @@ and other technical content use English.
 A pure utility layer with no runtime side effects. It registers nothing and serves as the centralized import source for shared functions used across all other extensions.
 
 Sub-modules:
-- **locale.ts** — `detectLocale()`, `detectPrimaryLocale()`, `localeToDisplayName()`, `buildLanguageInstruction()`, `buildStableLanguagePolicy()`, `LOCALE_MAP`. Shared locale and stable language policy helpers.
+- **locale.ts** — `detectLocale()`, `detectPrimaryLocale()`, `localeToDisplayName()`, `buildLanguageInstruction()`, `LOCALE_MAP`. Shared locale and OS-locale language instruction helpers; `localeToDisplayName()` normalizes script subtags so Simplified/Traditional Chinese are distinguished accurately.
 - **renderer.ts** — `createFocusRenderCall()`, `focusRenderCall()`, `focusRenderResult()`. Dim-style rendering helpers for custom tools.
 - **paths.ts** — `shortenPath()`, `linkPath()`, `shortenCommand()`. Path display utilities with OSC 8 hyperlink support.
 - **html.ts** — `convertHTMLToMarkdown()`, `extractTextFromHTML()`, `stripTags()`, `isRasterImage()`, `STRIP_TAGS`. AST-based HTML conversion via node-html-markdown.
@@ -117,7 +118,7 @@ Sub-modules:
 
 ### locale
 
-Appends a byte-stable `[LANGUAGE]` policy to the system prompt via `before_agent_start`: reply in the same language the user is using and preserve technical identifiers exactly. It intentionally avoids injecting OS-specific locale text into every turn. `detectLocale()` / `detectPrimaryLocale()` remain available for local UI/prompt-template choices, but LLM context should prefer `buildStableLanguagePolicy()`.
+Appends an OS-locale-backed hard `[LANGUAGE]` directive to the system prompt via `before_agent_start`: the directive names the target language explicitly (e.g. `中文（简体）`) and instructs the model to keep technical identifiers, code, paths, commands, and commit messages in their original language. This is more reliable than inferring the user's language from each turn, which misfires when inputs mix natural language with English code/paths/commands. On a single machine the detected OS locale is stable across turns, so the system-prompt prefix cache is unaffected. `localeToDisplayName()` normalizes script subtags (`zh-Hans-CN` → `zh-CN`, `zh-Hant` → `zh-TW`) so Simplified/Traditional Chinese are distinguished accurately; `detectLocale()` / `detectPrimaryLocale()` remain available for local UI/prompt-template choices.
 
 ### human-led-coding-workflow
 
@@ -188,7 +189,7 @@ Reasonix-inspired prefix-cache optimization layer. It preserves local session/UI
 - `before_provider_request` canonicalizes OpenAI-compatible provider `tools` by sorting tool names and JSON schema keys / order-insensitive arrays (`required`, `enum`, `dependentRequired`). It also removes provider-level `reasoning_content` / `reasoning` fields from assistant messages for the same OpenAI-compatible reasoning targets.
 - `tool_result` caps text returned to the LLM at 32KB and saves oversized full output to a temp file.
 - `/cache-stats` shows aggregated input/output/cache read/cache write/hit-rate/cost for the current branch.
-- `/cache-doctor` reports common prefix-cache breakers: system prompt hash changes, tool schema hash changes, filtered active tools, old locale custom messages, stored thinking size, and oversized tool results.
+- `/cache-doctor` reports common prefix-cache breakers: system prompt hash changes, tool schema hash changes, filtered active tools, stored thinking size, and oversized tool results.
 
 Future extensions must treat prefix stability as a compatibility contract: dynamic instructions belong in user/custom turn-tail messages or runtime gates, not in changing system prompts or changing tool sets.
 

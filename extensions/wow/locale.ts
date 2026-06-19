@@ -59,28 +59,76 @@ export const LOCALE_MAP: Record<string, string> = {
   "th-TH": "ไทย",
 };
 
-/** Map a locale string to a human-readable language display name */
-export function localeToDisplayName(locale: string): string {
-  return LOCALE_MAP[locale] ?? LOCALE_MAP[locale.split("-")[0]] ?? "English";
+/**
+ * Script subtag → default region tag, used when a locale carries a script but
+ * no region (e.g. `zh-Hans` → `zh-CN`). Keeps the locale table keys stable.
+ */
+const SCRIPT_DEFAULT_REGION: Record<string, string> = {
+  hans: "CN",
+  hant: "TW",
+};
+
+/**
+ * Normalize a BCP-47 locale so the locale table can distinguish regional
+ * variants (e.g. Simplified vs Traditional Chinese) regardless of whether the
+ * runtime emits a script subtag.
+ *
+ * Examples:
+ *   zh-Hans-CN → zh-CN
+ *   zh-Hant-TW → zh-TW
+ *   zh-Hans    → zh-CN
+ *   zh-Hant    → zh-TW
+ *   en-US      → en-US
+ *   zh         → zh
+ */
+function normalizeLocale(locale: string): string {
+  if (!locale) return locale;
+  const parts = locale.split("-").filter(Boolean);
+  if (parts.length === 0) return locale;
+
+  const lang = parts[0].toLowerCase();
+  if (parts.length === 1) return lang;
+
+  const second = parts[1];
+  // A 4-letter second subtag is a script code (e.g. Hans, Hant).
+  if (second.length === 4) {
+    // lang-script-region → lang-region
+    if (parts.length >= 3 && parts[2]) {
+      return `${lang}-${parts[2].toUpperCase()}`;
+    }
+    // lang-script (no region) → lang-defaultRegion
+    const defaultRegion = SCRIPT_DEFAULT_REGION[second.toLowerCase()];
+    if (defaultRegion) return `${lang}-${defaultRegion}`;
+    return lang;
+  }
+
+  // lang-region → normalize case to match LOCALE_MAP keys
+  return `${lang}-${second.toUpperCase()}`;
 }
 
-/** Build the legacy locale-specific instruction string. Prefer buildStableLanguagePolicy() for LLM context. */
-export function buildLanguageInstruction(): string {
-  const locale = detectLocale();
-  const displayName = localeToDisplayName(locale);
-  return `[LANGUAGE] The user's OS language is ${displayName}. All your responses, including plans, explanations, and dialogue, must be written in ${displayName}.`;
+/** Map a locale string to a human-readable language display name. */
+export function localeToDisplayName(locale: string): string {
+  const normalized = normalizeLocale(locale);
+  return LOCALE_MAP[normalized] ?? LOCALE_MAP[normalized.split("-")[0]] ?? "English";
 }
 
 /**
- * Build a byte-stable language policy for the system prompt.
+ * Build the OS-locale language instruction for the system prompt.
  *
- * Prefix-cache rule: do not inject OS locale names into every turn. A generic
- * same-language policy stays identical across turns and still follows the user.
+ * This is a hard directive that names the target language explicitly, so the
+ * model does not have to infer the user's language from each turn (which is
+ * unreliable when inputs mix natural language with English code/paths/commands).
+ *
+ * Prefix-cache note: on a single machine the detected OS locale is stable
+ * across turns, so the produced string is byte-stable within a session and the
+ * system-prompt prefix cache is unaffected. Per-turn locale probing is not used.
  */
-export function buildStableLanguagePolicy(): string {
-  return [
-    "[LANGUAGE]",
-    "Reply in the same language the user is using.",
-    "For technical identifiers, code, paths, commands, and commit messages, keep the original language and exact spelling.",
-  ].join("\n");
+export function buildLanguageInstruction(): string {
+  const locale = detectLocale();
+  const displayName = localeToDisplayName(locale);
+  return (
+    `[LANGUAGE] The user's OS language is ${displayName}. ` +
+    `All your responses, including plans, explanations, and dialogue, must be written in ${displayName}. ` +
+    `For technical identifiers, code, paths, commands, and commit messages, keep the original language and exact spelling.`
+  );
 }

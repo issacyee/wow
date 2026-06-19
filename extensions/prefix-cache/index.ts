@@ -91,21 +91,10 @@ function formatCacheStats(entries: any[]): string {
   ].join("\n");
 }
 
-function countLocaleInstructionMessages(entries: any[]): number {
-  let count = 0;
-  for (const entry of entries) {
-    if (entry?.customType === "locale-instruction") count++;
-    if (entry?.type === "custom_message" && entry.customType === "locale-instruction") count++;
-    if (entry?.type === "message" && entry.message?.customType === "locale-instruction") count++;
-  }
-  return count;
-}
-
 function formatCacheDoctor(pi: ExtensionAPI, ctx: any): string {
   const entries = ctx.sessionManager.getBranch();
   const cache = collectCacheStats(entries);
   const thinking = collectThinkingStats(entries);
-  const localeMessages = countLocaleInstructionMessages(entries);
   const allTools = pi.getAllTools();
   const activeTools = pi.getActiveTools();
   const activeToolCount = activeTools.length;
@@ -121,7 +110,6 @@ function formatCacheDoctor(pi: ExtensionAPI, ctx: any): string {
     `- provider requests observed: ${diagnostics.requests}`,
     `- tool schema hashes this runtime: ${diagnostics.distinctToolsHashes.size}${diagnostics.lastToolsHash ? ` (last ${diagnostics.lastToolsHash})` : ""}`,
     `- active tools: ${activeToolCount}/${allToolCount}`,
-    `- locale custom messages in branch: ${localeMessages}`,
     `- assistant thinking stored locally: ${thinking.thinkingBlocks} blocks, ${formatBytes(thinking.thinkingBytes)}`,
     `- largest tool result in branch: ${formatBytes(thinking.toolResultBytesMax)}`,
   ];
@@ -135,9 +123,6 @@ function formatCacheDoctor(pi: ExtensionAPI, ctx: any): string {
   }
   if (activeToolCount !== allToolCount) {
     warnings.push("active tool set is filtered; mode extensions should prefer tool_call gates");
-  }
-  if (localeMessages > 0) {
-    warnings.push("old locale custom messages exist; new locale policy should be system-prompt stable");
   }
   if (thinking.largeToolResults.length > 0) {
     warnings.push(`${thinking.largeToolResults.length} tool result(s) exceed 32KB and will burden future prefixes`);
