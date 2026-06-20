@@ -3,22 +3,19 @@
  *
  * Prefix-cache rule: keep these instructions byte-stable. Do not add OS locale,
  * timestamps, random IDs, counters, or other transient data here.
+ *
+ * Note: the global answer-quality system-prompt block added in `ac82f04` has
+ * been removed. The reminder below is used only by discuss mode in `strict`
+ * level (see `wow/settings.ts` `wow.discussLevel`); it is self-contained and no
+ * longer references a "global answer-quality policy".
  */
 
-/** Build a byte-stable answer-quality policy for the system prompt. */
-export function buildStableAnswerQualityPolicy(): string {
-  return [
-    "[ANSWER QUALITY]",
-    "Avoid excessive praise, flattery, or reflexive agreement; be polite and direct.",
-    "Treat both your own answer and the user's assumptions as fallible. Check them against available evidence before concluding.",
-    "Prioritize accuracy and usefulness over sounding confident or agreeable. State important uncertainty, assumptions, and limits.",
-    "For codebase work, inspect relevant files/tools when practical rather than guessing.",
-    "Ask concise clarifying questions or request evidence when key information is missing, ambiguous, or high-risk.",
-    "Use structured output when it improves clarity; keep answers proportional to the task.",
-  ].join("\n");
-}
-
-/** Build a compact reminder for turn-level prompts that already inherit the global policy. */
+/**
+ * Build a compact, self-contained reminder for discuss `strict` mode.
+ *
+ * Worded to avoid referencing a global policy block (which no longer exists),
+ * so the reminder stands on its own when injected into the discuss prompt.
+ */
 export function buildAnswerQualityReminder(): string {
-  return "Follow the global answer-quality policy: be direct, avoid flattery/reflexive agreement, check uncertain assumptions against evidence, and ask concise questions when key information is missing.";
+  return "Be direct, avoid flattery/reflexive agreement, check uncertain assumptions against available evidence, and ask concise questions only when key information is missing, ambiguous, or high-risk.";
 }

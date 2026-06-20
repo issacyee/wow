@@ -6,6 +6,7 @@
  */
 
 import { buildAnswerQualityReminder } from "../wow/quality.ts";
+import type { DiscussLevel } from "../wow/settings.ts";
 import { EXECUTE_MARKER, type TodoItem } from "./plan.ts";
 
 export type WorkflowMode = "discuss" | "plan" | "revise" | "execute";
@@ -13,22 +14,46 @@ export type WorkflowMode = "discuss" | "plan" | "revise" | "execute";
 export const WORKFLOW_CONTEXT_TYPE = "human-led-coding-workflow-context";
 
 const READ_ONLY_TOOLS = "codegraph_explore, codegraph_node, codegraph_search, codegraph_callers, codegraph_status, read, grep, find, ls, bash(read-only allowlist), webfetch";
-const ANSWER_QUALITY_REMINDER = buildAnswerQualityReminder();
 
-export function buildDiscussPrompt(): string {
+const ASK_FORMAT_SECTION = `
+
+Structured questions:
+- When you must ask the human to decide between options, emit a \`:::ask\` fenced block instead of a free-form question. Only ask when a real decision is needed; prefer fewer questions.
+- Format:
+  \`\`\`
+  :::ask id=<stable-id> multiple=<true|false> allowCustom=<true|false>
+  question: <the question>
+  hint: <optional guidance>
+  - [x] <recommended option (your preferred answer)>
+  - [ ] <another option>
+  \`\`\`
+- \`id\` is required and must be stable within this reply. \`multiple\` defaults to false (single choice). \`allowCustom\` defaults to true.
+- Mark exactly one option \`[x]\` for single-choice (your recommendation), or several for multiple-choice.
+- Options should be mutually exclusive and self-explanatory; \`hint\` carries trade-off context.
+- If a question needs no discrete options (open-ended), still emit the block with the options omitted and \`allowCustom=true\`; the user will type a custom answer.
+- The user's reply will arrive as a \`[Discuss answers]\` message mapping each id to the chosen option(s), a custom value, or \`(skipped — 你自行判断决定)\`. When an id is skipped, decide yourself and continue; do not ask again.
+- Output rules (strict — the parser is line-based):
+  • Do NOT wrap the block in a markdown code fence. Emit the lines verbatim, not inside triple-backticks.
+  • End every block with a line containing exactly \`:::\`.
+  • Do not indent the lines inside the block (no leading spaces).`;
+
+export function buildDiscussPrompt(level: DiscussLevel): string {
+  const reminderLine = level === "strict"
+    ? `\n- ${buildAnswerQualityReminder()}`
+    : "";
+
   return `[HLCW:DISCUSS]
 
 Discuss/analyze with the human as decision maker.
 
 Rules:
 - Current user message is the focus; use prior conversation only as background.
-- Continue an earlier topic only if explicitly referenced; otherwise switch to the new topic.
-- ${ANSWER_QUALITY_REMINDER}
+- Continue an earlier topic only if explicitly referenced; otherwise switch to the new topic.${reminderLine}
 - Prefer CodeGraph for structural code exploration when an index is available.
 - May explore with codegraph_explore, codegraph_node, codegraph_search, codegraph_callers, codegraph_status, read, grep, find, ls, webfetch, and read-only bash.
 - Do not edit/write files.
 - Do not write an implementation plan unless the user asks with ??.
-- Ask concise questions if key information is missing.`;
+- Ask concise questions if key information is missing, using the structured format below when discrete options exist.${ASK_FORMAT_SECTION}`;
 }
 
 interface PlanPromptOptions {
@@ -45,7 +70,6 @@ export function buildPlanPrompt(options: PlanPromptOptions = {}): string {
 Write a new reviewable plan. Replace any active plan.
 
 Rules:${sourceInstruction}
-- ${ANSWER_QUALITY_REMINDER}
 - Prefer CodeGraph for structural code exploration when an index is available.
 - Explore first when needed: codegraph_explore, codegraph_node, codegraph_search, codegraph_callers, codegraph_status, read, grep, find, ls, webfetch, read-only bash.
 - Ask concise questions if critical info is missing; do not output a plan yet.
@@ -95,7 +119,6 @@ Role: revise the current active plan based on the human's feedback.
 
 Rules:
 - There must already be an active plan in the conversation; use the user's feedback to update it.
-- ${ANSWER_QUALITY_REMINDER}
 - Read relevant code again if needed with: ${READ_ONLY_TOOLS}.
 - Do not edit files or write new files.
 - Output the full revised plan, not a diff or partial update.
@@ -126,7 +149,6 @@ Role: execute the human-approved active plan.
 Rules:
 - Full tool access is allowed in this mode.
 - Follow the active plan and incorporate any extra constraints in the user's current message.
-- ${ANSWER_QUALITY_REMINDER}
 - Do not commit changes. The human commits manually.
 - After completing an implementation step, immediately output a visible progress line containing [DONE:n] where n is the step number, then continue with later steps.
 - Do not wait until the final summary to report completed steps; emit each [DONE:n] as soon as that step is complete.

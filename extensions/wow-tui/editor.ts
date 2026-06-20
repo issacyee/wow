@@ -45,6 +45,7 @@ export class WowCompositeEditor extends CustomEditor {
     private readonly wowTheme: any,
     private readonly onHistoryPeek?: () => void,
     private readonly onClearHistoryPeek?: () => void,
+    private readonly onReopenAsk?: () => void,
   ) {
     super(tui, theme, keybindings);
     this._storedBorderColor = theme.borderColor;
@@ -65,6 +66,11 @@ export class WowCompositeEditor extends CustomEditor {
 
     if (matchesKey(data, Key.ctrl("q"))) {
       this.onClearHistoryPeek?.();
+      return;
+    }
+
+    if (matchesKey(data, Key.alt("k"))) {
+      this.onReopenAsk?.();
       return;
     }
 

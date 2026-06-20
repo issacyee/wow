@@ -31,8 +31,15 @@ export {
 
 export {
   buildAnswerQualityReminder,
-  buildStableAnswerQualityPolicy,
 } from "./quality.ts";
+
+export {
+  DISCUSS_LEVEL_VALUES,
+  DISCUSS_LEVEL_DEFAULT,
+  readWowSetting,
+  resolveDiscussLevel,
+  type DiscussLevel,
+} from "./settings.ts";
 
 export {
   AdaptiveLine,

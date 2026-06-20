@@ -59,6 +59,7 @@ when a prefix is used.
 
 - **Human-led control**: ordinary input remains free-form; plan feedback requires `?!`; execution requires `$`
 - **Read-only discussion/planning/revision**: these modes allow `codegraph_*`, `read`, `grep`, `find`, `ls`, safe read-only `bash`, and `webfetch`, while blocking `edit`, `write`, and unsafe commands
+- **Configurable discuss strictness**: the `wow.discussLevel` setting (`standard` | `strict`, default `standard`) controls whether discuss mode injects an extra answer-quality reminder line. `standard` keeps discussion direct (fewer confirmation prompts — suitable for strong models or simple projects); `strict` asks concise questions on missing/ambiguous/high-risk info. Set it in `/config:project` or `/config:global`; project overrides global. Only discuss mode is affected.
 - **Reviewable plan structure**: plans include Goals, Background, Key Decisions, Non-goals, Implementation Steps, Acceptance Criteria, Verification, and Risks, ending with `Ready to execute?`
 - **Execution summary**: execution responses are guided to include Summary, Modified Files, and Follow-up Suggestions; commits remain manual
 - **Prefix-cache friendly**: the extension never mutates the system prompt, never switches active tools, filters stale workflow context messages from provider context, and stores state in custom entries outside LLM context
@@ -251,6 +252,8 @@ it serves purely as an import source for common functions.
 | `html.ts`     | `convertHTMLToMarkdown`, `extractTextFromHTML`, `stripTags`, `isRasterImage`, `STRIP_TAGS`                                          | webfetch                          |
 | `shell.ts`    | `execOrNull`, `execWithError`                                                                                                       | git-commit                        |
 | `safe.ts`     | `isSafeCommand`                                                                                                                     | human-led-coding-workflow         |
+| `quality.ts`  | `buildAnswerQualityReminder`                                                                                                        | discuss strict mode               |
+| `settings.ts` | `readWowSetting`, `resolveDiscussLevel`, `DISCUSS_LEVEL_VALUES`, `DISCUSS_LEVEL_DEFAULT`                                            | human-led-coding-workflow, config-ui |
 | `tips.ts`     | `registerWowTips`, `getWowTips`, `clearWowTips`                                                                                     | feature tips, wow-tui working     |
 
 Each sub-module can be imported directly by relative path:
@@ -311,6 +314,8 @@ wow/
 │   │   ├── html.ts          # HTML → Markdown/Text conversion helpers
 │   │   ├── shell.ts         # Sync command execution wrappers
 │   │   ├── safe.ts          # Read-only bash command safety checks
+│   │   ├── quality.ts       # Answer-quality reminder builder (discuss strict mode)
+│   │   ├── settings.ts      # Shared settings.json reader and discuss-level config
 │   │   └── tips.ts          # Shared working-tip registry
 │   ├── locale/              # OS-locale language policy
 │   │   ├── index.ts         # Appends OS-locale hard language directive to system prompt
@@ -319,6 +324,7 @@ wow/
 │   │   ├── index.ts         # Prefix routing, context injection, tool gates, state persistence
 │   │   ├── prompts.ts       # Byte-stable workflow prompts
 │   │   ├── plan.ts          # Plan detection, extraction, [DONE:n] tracking
+│   │   ├── ask.ts           # discuss :::ask block parser, answer formatter, panel trigger singleton
 │   │   ├── state.ts         # UI-independent workflow state store
 │   │   └── tips.ts          # Workflow working tips
 │   ├── git-commit/          # /git-commit — LLM-generated Conventional Commits
@@ -334,6 +340,7 @@ wow/
 │   │   ├── footer.ts        # Two-line footer compositor
 │   │   ├── editor.ts        # Composite editor
 │   │   ├── history-peek.ts  # Ctrl+R current-branch history search overlay
+│   │   ├── ask-panel.ts     # discuss :::ask structured-question overlay
 │   │   ├── tools.ts         # Focus-style built-in tool rendering overrides
 │   │   ├── widgets.ts       # Workflow status/todo presenters
 │   │   ├── tips.ts          # Wow TUI working tips

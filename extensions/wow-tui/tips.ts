@@ -18,6 +18,12 @@ const TIPS: WowTipInput[] = [
     priority: 45,
   },
   {
+    id: "wow-tui-ask-reopen",
+    short: "Cancelled a discuss question panel? Press Alt+K in the prompt editor to reopen the most recent one.",
+    tags: ["tui", "workflow"],
+    priority: 40,
+  },
+  {
     id: "wow-tui-ime-prefixes",
     short: "Chinese IME prefixes ？, ！, and ￥ are converted to ?, !, and $ automatically.",
     tags: ["tui", "workflow"],

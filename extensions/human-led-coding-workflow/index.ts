@@ -58,7 +58,14 @@ import {
   type TurnMode,
   type WorkflowState,
 } from "./state.ts";
+import {
+  collectAskBlocks,
+  formatAskAnswers,
+  getAskPanelTrigger,
+  type AskBlock,
+} from "./ask.ts";
 import { isSafeCommand } from "../wow/safe.ts";
+import { resolveDiscussLevel } from "../wow/settings.ts";
 import { registerHumanLedWorkflowTips } from "./tips.ts";
 import {
   WORKFLOW_EXECUTION_SUMMARY_TYPE,
@@ -83,6 +90,14 @@ const READ_ONLY_ALLOWED_TOOLS = new Set([
 let hasExecutionAdjustment = false;
 let planFromPreviousDiscussion = false;
 let executionProgressDirty = false;
+
+/** Most recent discuss turn's parsed ask blocks, for Alt+K reopen. */
+let lastAskBlocks: AskBlock[] = [];
+
+/** Return the most recent discuss ask blocks (for the Alt+K reopen trigger). */
+export function getLastAskBlocks(): AskBlock[] {
+  return lastAskBlocks;
+}
 
 function cloneTodoItems(items: TodoItem[]): TodoItem[] {
   return items.map((item) => ({ ...item }));
@@ -117,6 +132,38 @@ function queueExecutionSummaryMessage(
     } catch {
       // The session may have been reloaded or shut down before the idle callback.
     }
+  }, attempt === 0 ? 0 : 50);
+}
+
+/**
+ * After a discuss turn, if the assistant emitted any `:::ask` blocks, open the
+ * ask panel (once the agent is idle) and fill the chosen answers into the editor
+ * so the human can append notes and send. Cancelled panels leave the editor as-is.
+ */
+function queueDiscussAskPanel(ctx: ExtensionContext, blocks: AskBlock[], attempt = 0): void {
+  if (blocks.length === 0) return;
+
+  setTimeout(() => {
+    if (typeof ctx.isIdle === "function" && !ctx.isIdle()) {
+      if (attempt < 40) queueDiscussAskPanel(ctx, blocks, attempt + 1);
+      return;
+    }
+
+    const trigger = getAskPanelTrigger();
+    if (!trigger) return; // visual layer not loaded / no UI
+
+    trigger(ctx, blocks)
+      .then((answers) => {
+        if (!answers) return; // user cancelled — leave editor untouched
+        try {
+          ctx.ui.setEditorText(`? ${formatAskAnswers(answers)}`);
+        } catch {
+          // UI may have been torn down; non-fatal.
+        }
+      })
+      .catch(() => {
+        // Panel errors must never break the session.
+      });
   }, attempt === 0 ? 0 : 50);
 }
 
@@ -402,7 +449,7 @@ export default function humanLedCodingWorkflowExtension(pi: ExtensionAPI): void 
       return {
         message: {
           customType: WORKFLOW_CONTEXT_TYPE,
-          content: buildDiscussPrompt(),
+          content: buildDiscussPrompt(resolveDiscussLevel()),
           display: false,
         },
       };
@@ -537,6 +584,14 @@ export default function humanLedCodingWorkflowExtension(pi: ExtensionAPI): void 
   // agent_end — capture plans and clear transient mode state.
   pi.on("agent_end", async (event, ctx) => {
     const turnMode = getTurnMode();
+
+    if (turnMode === "discuss") {
+      const askBlocks = collectAskBlocks(getLatestAssistantText(event.messages));
+      lastAskBlocks = askBlocks; // cache for Alt+K reopen, even if panel was cancelled
+      if (askBlocks.length > 0) {
+        queueDiscussAskPanel(ctx, askBlocks);
+      }
+    }
 
     if (turnMode === "plan" || turnMode === "revise") {
       const latestPlan = findLatestPlanInMessages(event.messages);

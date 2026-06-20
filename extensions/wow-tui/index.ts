@@ -7,6 +7,7 @@
  */
 
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { setAskPanelTrigger } from "../human-led-coding-workflow/ask.ts";
 import { subscribeWorkflowState, WORKFLOW_STATE_TYPE } from "../human-led-coding-workflow/state.ts";
 import { installBtwAskTimer, registerBtwRendering } from "./btw.ts";
 import { WOW_TUI_CONFIG } from "./config.ts";
@@ -14,6 +15,7 @@ import { registerConfigUI } from "./config-ui.ts";
 import { createEditorComponent } from "./editor.ts";
 import { installFooter } from "./footer.ts";
 import { clearPinnedHistoryPeek, openHistoryPeek } from "./history-peek.ts";
+import { openAskPanel, reopenAskPanel } from "./ask-panel.ts";
 import { registerPiNativeTips } from "./pi-tips.ts";
 import { registerFocusToolRendering } from "./tools.ts";
 import { registerWowTuiTips } from "./tips.ts";
@@ -64,6 +66,8 @@ export default function wowTuiExtension(pi: ExtensionAPI): void {
   let cleanupBtwAskTimer: (() => void) | undefined;
 
   pi.on("session_start", async (_event, ctx) => {
+    setAskPanelTrigger(openAskPanel);
+
     unsubscribeWorkflow?.();
     unsubscribeWorkflow = undefined;
     cleanupBtwAskTimer?.();
@@ -98,6 +102,7 @@ export default function wowTuiExtension(pi: ExtensionAPI): void {
           ctx.ui.theme,
           WOW_TUI_CONFIG.historyPeek ? () => { void openHistoryPeek(ctx); } : undefined,
           WOW_TUI_CONFIG.historyPeek ? () => clearPinnedHistoryPeek(ctx) : undefined,
+          () => { void reopenAskPanel(ctx); },
         )
       );
     }
@@ -110,6 +115,8 @@ export default function wowTuiExtension(pi: ExtensionAPI): void {
   });
 
   pi.on("session_shutdown", async (_event, ctx) => {
+    setAskPanelTrigger(null);
+
     unsubscribeWorkflow?.();
     unsubscribeWorkflow = undefined;
     cleanupBtwAskTimer?.();
