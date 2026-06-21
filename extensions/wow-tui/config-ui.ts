@@ -15,6 +15,7 @@ import {
   getSettingsListTheme,
   SettingsManager,
 } from "@earendil-works/pi-coding-agent";
+import { ensureLocalDirectoryGitignore } from "../wow/gitignore.ts";
 import { DISCUSS_LEVEL_DEFAULT, DISCUSS_LEVEL_VALUES } from "../wow/settings.ts";
 import {
   Container,
@@ -128,6 +129,11 @@ function readSettings(scope: ConfigScope, cwd: string): JsonObject {
 
 function writeSettings(scope: ConfigScope, cwd: string, value: JsonObject): void {
   writeJsonFile(settingsPath(scope, cwd), value);
+  if (scope === "project") {
+    ensureLocalDirectoryGitignore(join(cwd, ".pi"), {
+      comment: "Project-local pi settings. Keep this .gitignore, ignore generated contents.",
+    });
+  }
 }
 
 function updateSettings(scope: ConfigScope, cwd: string, update: (settings: JsonObject) => void): JsonObject {

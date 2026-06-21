@@ -10,6 +10,7 @@ import { join } from "node:path";
 
 import { defineTool, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { StringEnum, Type } from "@earendil-works/pi-ai";
+import { ensureLocalDirectoryGitignore } from "../wow/gitignore.ts";
 import {
   CODEGRAPH_INSTALL_COMMAND,
   CODEGRAPH_UPDATE_COMMAND,
@@ -146,8 +147,19 @@ async function ensureCodeGraphInstalled(ctx: any): Promise<boolean> {
   return true;
 }
 
+function ensureCodeGraphDirectoryGitignore(ctx: any): void {
+  const root = findCodeGraphRoot(ctx.cwd) ?? ctx.cwd;
+  const result = ensureLocalDirectoryGitignore(join(root, ".codegraph"), {
+    comment: "CodeGraph data files are local to each machine. Keep this .gitignore, ignore generated contents.",
+  });
+  if (result.error) {
+    notify(ctx, `Could not write ${result.path}: ${result.error.message}`, "warning");
+  }
+}
+
 async function runReindexCommand(ctx: any): Promise<void> {
-  await runCommandForUi(ctx, ["index", "-f"], "CodeGraph reindex", 300);
+  const result = await runCommandForUi(ctx, ["index", "-f"], "CodeGraph reindex", 300);
+  if (result.exitCode === 0) ensureCodeGraphDirectoryGitignore(ctx);
 }
 
 async function maybeAutoSync(root: string, signal?: AbortSignal): Promise<void> {
@@ -197,7 +209,7 @@ async function runToolCommand(
   };
 }
 
-async function runCommandForUi(ctx: any, args: string[], description: string, timeoutSeconds = 120): Promise<void> {
+async function runCommandForUi(ctx: any, args: string[], description: string, timeoutSeconds = 120): Promise<CodeGraphCommandResult> {
   const result: CodeGraphCommandResult = await runCodeGraph(args, { cwd: ctx.cwd, timeoutSeconds, signal: ctx.signal });
   const text = formatCommandResult(result);
   if (result.exitCode === 0) {
@@ -205,6 +217,7 @@ async function runCommandForUi(ctx: any, args: string[], description: string, ti
   } else {
     notify(ctx, `${description} failed: ${text.slice(0, 500)}`, "error");
   }
+  return result;
 }
 
 function renderOptions(toolName: string): Record<string, any> {
@@ -348,7 +361,8 @@ export default function codegraphExtension(pi: ExtensionAPI): void {
         if (!ok) return;
       }
       if (!await ensureCodeGraphInstalled(ctx)) return;
-      await runCommandForUi(ctx, ["init"], "CodeGraph init", 180);
+      const result = await runCommandForUi(ctx, ["init"], "CodeGraph init", 180);
+      if (result.exitCode === 0) ensureCodeGraphDirectoryGitignore(ctx);
     },
   });
 
@@ -356,7 +370,8 @@ export default function codegraphExtension(pi: ExtensionAPI): void {
     description: "Synchronize the current project's CodeGraph index",
     handler: async (_args, ctx) => {
       if (!await ensureCodeGraphInstalled(ctx)) return;
-      await runCommandForUi(ctx, ["sync"], "CodeGraph sync", 120);
+      const result = await runCommandForUi(ctx, ["sync"], "CodeGraph sync", 120);
+      if (result.exitCode === 0) ensureCodeGraphDirectoryGitignore(ctx);
     },
   });
 

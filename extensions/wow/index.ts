@@ -10,6 +10,7 @@
  *   html.ts      — HTML → Markdown/Text conversion
  *   shell.ts     — Synchronous command execution wrappers
  *   safe.ts      — Read-only bash command safety checks
+ *   gitignore.ts — Helpers for local generated-directory .gitignore files
  *   tips.ts      — Shared working-tip registry
  *
  * The entry itself is a no-op — it registers nothing and has no side effects.
@@ -83,6 +84,12 @@ export {
 export {
   isSafeCommand,
 } from "./safe.ts";
+
+export {
+  ensureLocalDirectoryGitignore,
+  type LocalDirectoryGitignoreOptions,
+  type LocalDirectoryGitignoreResult,
+} from "./gitignore.ts";
 
 export {
   clearWowTips,
