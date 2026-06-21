@@ -50,6 +50,7 @@ Rules:
 - Current user message is the focus; use prior conversation only as background.
 - Continue an earlier topic only if explicitly referenced; otherwise switch to the new topic.${reminderLine}
 - Prefer CodeGraph for structural code exploration when an index is available.
+- If the project has no CodeGraph index yet, run \`codegraph init\` first to build one, then use the codegraph_* tools to explore.
 - May explore with codegraph_explore, codegraph_node, codegraph_search, codegraph_callers, codegraph_status, read, grep, find, ls, webfetch, and read-only bash.
 - Do not edit/write files.
 - Do not write an implementation plan unless the user asks with ??.

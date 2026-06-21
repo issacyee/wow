@@ -60,7 +60,7 @@ const SAFE_MULTIPART: Record<string, Set<string>> = {
   "apt-get": new Set(["list", "show", "search", "policy", "cache"]),
   brew: new Set(["list", "info", "search", "outdated", "config", "doctor"]),
   docker: new Set(["ps", "images", "inspect", "logs", "stats", "version", "info", "search", "history", "port", "top", "diff"]),
-  codegraph: new Set(["status", "query", "explore", "node", "callers", "callees", "impact", "files", "context", "affected"]),
+  codegraph: new Set(["status", "query", "explore", "node", "callers", "callees", "impact", "files", "context", "affected", "init"]),
 };
 
 /** npm config is special: "npm config get" and "npm config list" are safe */
