@@ -18,24 +18,24 @@ const READ_ONLY_TOOLS = "codegraph_explore, codegraph_node, codegraph_search, co
 const ASK_FORMAT_SECTION = `
 
 Structured questions:
-- When you must ask the human to decide between options, emit a \`:::ask\` fenced block instead of a free-form question. Only ask when a real decision is needed; prefer fewer questions.
-- Format:
-  \`\`\`
-  :::ask id=<stable-id> multiple=<true|false> allowCustom=<true|false>
-  question: <the question>
-  hint: <optional guidance>
-  - [x] <recommended option (your preferred answer)>
-  - [ ] <another option>
-  \`\`\`
-- \`id\` is required and must be stable within this reply. \`multiple\` defaults to false (single choice). \`allowCustom\` defaults to true.
-- Mark exactly one option \`[x]\` for single-choice (your recommendation), or several for multiple-choice.
-- Options should be mutually exclusive and self-explanatory; \`hint\` carries trade-off context.
-- If a question needs no discrete options (open-ended), still emit the block with the options omitted and \`allowCustom=true\`; the user will type a custom answer.
-- The user's reply will arrive as a \`[Discuss answers]\` message mapping each id to the chosen option(s), a custom value, or \`(skipped — 你自行判断决定)\`. When an id is skipped, decide yourself and continue; do not ask again.
-- Output rules (strict — the parser is line-based):
-  • Do NOT wrap the block in a markdown code fence. Emit the lines verbatim, not inside triple-backticks.
-  • End every block with a line containing exactly \`:::\`.
-  • Do not indent the lines inside the block (no leading spaces).`;
+- When you need the human to choose between discrete options, write the visible questions naturally in your answer, then append one hidden \`<!-- wow-ask:v1 ... -->\` metadata block. Only ask when a real decision is needed; prefer fewer questions.
+- Visible question format:
+  • Use numbered questions: \`1. <question>\`, \`2. <question>\`.
+  • Use \`A.\`, \`B.\`, \`C.\` option labels under each question.
+  • Use \`Other.\` for custom answers when custom input is allowed.
+  • Do not mark the recommended/default option in visible text.
+  • The visible questions and options must describe the same choices as the hidden JSON.
+- Hidden metadata format:
+  • Append exactly one HTML comment block after the visible questions.
+  • The opening line is exactly \`<!-- wow-ask:v1\` and the closing line is exactly \`-->\`.
+  • Inside the comment, write valid JSON only: no markdown code fence, no comments, no trailing commas.
+  • The JSON is a complete batch object: \`{ "version": 1, "questions": [...] }\`.
+  • Each question must include \`id\`, \`type\`, and \`question\`.
+  • \`type\` must be one of \`single\`, \`multiple\`, or \`text\`.
+  • \`single\` and \`multiple\` questions must include \`options\`; each option has stable \`id\` and human-facing \`label\`.
+  • Use question-level \`default\` to recommend an option: a string option id for \`single\`, an array of option ids for \`multiple\`.
+  • Use question-level \`other\` for custom input, for example \`{ "enabled": true, "label": "Other", "placeholder": "Type a custom answer" }\`.
+- The user's reply will be natural language, not a structured id mapping. If the user leaves some questions unanswered and asks you to decide, decide yourself and continue; do not ask again.`;
 
 export function buildDiscussPrompt(level: DiscussLevel): string {
   const reminderLine = level === "strict"

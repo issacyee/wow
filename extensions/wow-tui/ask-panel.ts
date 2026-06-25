@@ -1,84 +1,82 @@
 /**
- * Ask panel overlay for discuss-mode structured questions.
+ * Discuss Ask panel for HLCW structured questions.
  *
- * Visual presentation only. The logic layer (human-led-coding-workflow/ask.ts)
- * parses `:::ask` blocks, calls the injected trigger (this module's openAskPanel),
- * and fills the returned answers into the editor. This module never sends
+ * Visual presentation only. The logic layer parses hidden `<!-- wow-ask:v1 ... -->`
+ * metadata and injects this module's opener via setAskPanelTrigger(). This module
+ * owns the non-overlay TUI widget and editor-input routing, but never sends
  * messages or mutates workflow state.
  *
- * Visual style mirrors history-peek.ts: hand-drawn rounded borders (╭─╮ ├─┤ ╰─╯),
- * accent-colored title embedded in the top border, border-color frame, dim/accent
- * inner text. The option list is self-drawn (cursor marker ›, accent highlight,
- * boxedLine per row) rather than SelectList, because SelectList relies on the
- * TUI focus stack which breaks when embedded in an overlay; self-drawing keeps
- * ↑/↓ working and every row safely within the borders. All visible text is
- * English to match the history-peek baseline.
+ * Interaction model:
+ *   ↑/↓             move option cursor; leave inline Other input while preserving text
+ *   Space           select the highlighted option; toggles multiple-choice options
+ *   Enter           confirm current question and advance
+ *   Tab             switch question
+ *   Ctrl+Enter      fill editor draft (resolved to logic layer; not auto-sent)
+ *   Esc             close panel and return to editor
+ *   Other           inline input row; focusing the row allows immediate typing
  *
- * Interaction model (N questions → N+1 screens):
- *   Screen 1..N  one question per screen
- *   Screen N+1   summary + "Submit all answers" item
- *   ↑/↓          move cursor (defaults pre-positioned; Enter adopts)
- *   Enter        confirm current item (single-choice) / submit current state
- *   Space        multiple-choice: toggle option (defaults pre-checked)
- *   ←/→          switch screens (answers persist across switches)
- *   c            open custom free-text input (when allowCustom)
- *   s            skip current question
- *   Esc          cancel the whole panel (returns null)
- *
- * The summary screen is the ONLY place submission happens. Unanswered questions
- * are treated as skipped and may still be submitted.
- *
- * Reopen: Alt+K in the editor reopens the most recent discuss question batch
- * (see reopenAskPanel). Reopened panels start fresh; previous selections are
- * not retained.
+ * TUI chrome stays English by design; AI-authored question/option text is
+ * rendered exactly as received.
  */
 
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import {
+  CURSOR_MARKER,
   Input,
   Key,
   matchesKey,
   truncateToWidth,
   visibleWidth,
+  wrapTextWithAnsi,
   type Component,
-  type Focusable,
   type TUI,
 } from "@earendil-works/pi-tui";
-import type { AskAnswer, AskAnswers, AskBlock } from "../human-led-coding-workflow/ask.ts";
+import {
+  countAnsweredAskQuestions,
+  formatAskAnswers,
+  type AskAnswer,
+  type AskAnswers,
+  type AskBlock,
+} from "../human-led-coding-workflow/ask.ts";
 import { getLastAskBlocks } from "../human-led-coding-workflow/index.ts";
 
-interface PanelResult {
-  answers: AskAnswers | null;
-}
+const ASK_WIDGET_KEY = "wow.discuss-ask";
+const VISIBLE_ITEMS = 7;
 
 interface QuestionState {
   block: AskBlock;
-  /** Multiple-choice: set of checked labels. */
-  checked: Set<string>;
-  /** Cursor (selected) label for single-choice. */
-  singleChoice: string | undefined;
+  selected: Set<string>;
   custom: string | undefined;
   skipped: boolean;
 }
 
-type SubMode = "list" | "custom";
+type PanelMode = "list" | "custom";
+type ItemKind = "option" | "other" | "skip" | "submit" | "back";
 
-/** A self-drawn selectable row. */
 interface AskItem {
-  value: string;
+  kind: ItemKind;
+  value?: string;
   label: string;
   description?: string;
+  inlineInput?: boolean;
 }
 
-const CUSTOM_ITEM_VALUE = "__custom__";
-const SKIP_ITEM_VALUE = "__skip__";
-const SUBMIT_ITEM_VALUE = "__submit__";
-const BACK_ITEM_VALUE = "__back__";
+interface AskSummary {
+  blocks: AskBlock[];
+  answers: AskAnswers | null;
+  cancelled: boolean;
+}
 
-/** Max option rows rendered before showing ↑ N more · ↓ N more. */
-const VISIBLE_ITEMS = 8;
+let activeController: AskPanelController | null = null;
 
-// ── Hand-drawn borders, mirroring history-peek.ts ──
+function stripCursorMarker(text: string): string {
+  return text.replaceAll(CURSOR_MARKER, "");
+}
+
+function padLine(text: string, width: number): string {
+  const visible = visibleWidth(stripCursorMarker(text));
+  return visible >= width ? text : `${text}${" ".repeat(width - visible)}`;
+}
 
 function topBorder(theme: any, title: string, width: number): string {
   if (width <= 2) return theme.fg("border", "─".repeat(Math.max(1, width)));
@@ -102,16 +100,26 @@ function bottomBorder(theme: any, width: number): string {
 
 function boxedLine(theme: any, content: string, width: number): string {
   if (width <= 2) return truncateToWidth(content, Math.max(1, width), "", true);
-  const innerWidth = width - 2;
+  const innerWidth = Math.max(1, width - 2);
   return theme.fg("border", "│") + truncateToWidth(content, innerWidth, "…", true) + theme.fg("border", "│");
 }
 
-function padLine(text: string, width: number): string {
-  const visible = visibleWidth(text);
-  return visible >= width ? text : `${text}${" ".repeat(width - visible)}`;
+function pushWrappedBoxedLine(
+  lines: string[],
+  theme: any,
+  content: string,
+  width: number,
+  maxLines = 2,
+): void {
+  const innerWidth = Math.max(1, width - 2);
+  const wrapped = wrapTextWithAnsi(content, innerWidth);
+  const visible = wrapped.slice(0, maxLines);
+  for (let i = 0; i < visible.length; i++) {
+    const suffix = i === maxLines - 1 && wrapped.length > maxLines ? " …" : "";
+    lines.push(boxedLine(theme, `${visible[i]}${suffix}`, width));
+  }
 }
 
-/** Compute the scrolling window start so the cursor stays centered-ish. */
 function windowStart(cursor: number, total: number, visible: number): number {
   if (total <= visible) return 0;
   const half = Math.floor(visible / 2);
@@ -119,246 +127,517 @@ function windowStart(cursor: number, total: number, visible: number): number {
   return Math.min(Math.max(0, cursor - half), maxStart);
 }
 
-// ── Answer helpers ──
+function isCtrlEnter(data: string): boolean {
+  return matchesKey(data, Key.ctrl("enter")) || matchesKey(data, Key.ctrl("return"));
+}
+
+function otherEnabled(block: AskBlock): boolean {
+  return block.type === "text" || block.other?.enabled !== false;
+}
+
+function otherLabel(block: AskBlock): string {
+  return block.other?.label?.trim() || "Other";
+}
+
+function isDefaultOption(block: AskBlock, optionId: string): boolean {
+  return Array.isArray(block.default)
+    ? block.default.includes(optionId)
+    : block.default === optionId;
+}
 
 function answerFor(state: QuestionState): AskAnswer {
   if (state.custom !== undefined) return { kind: "custom", value: state.custom };
   if (state.skipped) return { kind: "skipped" };
-  const block = state.block;
-  if (block.multiple) {
-    const values = block.options
-      .filter((opt) => state.checked.has(opt.label))
-      .map((opt) => opt.label);
-    return { kind: "selected", values };
-  }
-  if (state.singleChoice !== undefined) {
-    return { kind: "selected", values: [state.singleChoice] };
-  }
-  return { kind: "skipped" };
+  const ordered = state.block.options
+    .filter((option) => state.selected.has(option.id))
+    .map((option) => option.id);
+  return ordered.length > 0 ? { kind: "selected", optionIds: ordered } : { kind: "skipped" };
 }
 
 function previewAnswer(state: QuestionState): string {
   if (state.custom !== undefined) return state.custom.trim() ? state.custom.trim() : "(empty custom)";
-  if (state.skipped) return "(skipped)";
-  const block = state.block;
-  if (block.multiple) {
-    const values = block.options.filter((opt) => state.checked.has(opt.label)).map((opt) => opt.label);
-    return values.length > 0 ? values.join("; ") : "(unanswered)";
-  }
-  if (state.singleChoice !== undefined) return state.singleChoice;
-  return "(unanswered)";
+  if (state.skipped) return "(decide yourself)";
+  const ordered = state.block.options
+    .filter((option) => state.selected.has(option.id))
+    .map((option) => option.label);
+  return ordered.length > 0 ? ordered.join("; ") : "(unanswered)";
 }
 
-class AskPagedPanel implements Component, Focusable {
-  private readonly blocks: AskBlock[];
+function buildAnswers(states: QuestionState[]): AskAnswers {
+  const answers: AskAnswers = {};
+  for (const state of states) {
+    answers[state.block.id] = answerFor(state);
+  }
+  return answers;
+}
+
+class AskPanelController {
   private readonly states: QuestionState[];
-  private readonly done: (result: PanelResult) => void;
-  private readonly tui: TUI;
-  private readonly theme: any;
-
+  private readonly customInput = new Input();
   private pageIndex = 0;
-  private subMode: SubMode = "list";
-  /** Cursor index within the current page's items list. */
   private cursor = 0;
-  /** Items rendered on the current page; set during render, read by handleInput. */
-  private currentItems: AskItem[] = [];
-
-  private customInput = new Input();
+  private mode: PanelMode = "list";
+  private requestRender: (() => void) | undefined;
+  private done = false;
 
   constructor(
-    tui: TUI,
-    theme: any,
-    blocks: AskBlock[],
-    done: (result: PanelResult) => void,
+    private readonly blocks: AskBlock[],
+    private readonly finish: (answers: AskAnswers | null, cancelled: boolean) => void,
   ) {
-    this.tui = tui;
-    this.theme = theme;
-    this.blocks = blocks;
-    this.done = done;
-
     this.states = blocks.map((block) => {
-      const checked = new Set<string>();
-      let singleChoice: string | undefined;
-      block.options.forEach((opt) => {
-        if (opt.default) {
-          if (block.multiple) checked.add(opt.label);
-          else singleChoice = opt.label;
-        }
-      });
-      if (!block.multiple && singleChoice === undefined && block.options.length > 0) {
-        singleChoice = block.options[0]!.label;
+      const selected = new Set<string>();
+      if (Array.isArray(block.default)) {
+        block.default.forEach((optionId) => selected.add(optionId));
+      } else if (block.default) {
+        selected.add(block.default);
       }
-      return { block, checked, singleChoice, custom: undefined, skipped: false };
+      return { block, selected, custom: undefined, skipped: false } satisfies QuestionState;
     });
 
-    this.customInput.onEscape = () => { this.subMode = "list"; this.tui.requestRender(); };
-    // Position cursor on the default option of the first question.
+    this.customInput.onEscape = () => {
+      this.mode = "list";
+      this.renderSoon();
+    };
+    this.customInput.onSubmit = (value) => {
+      this.saveCustom(value);
+      this.advance();
+    };
+
     this.resetCursorForPage();
   }
 
-  get focused(): boolean {
-    return true;
-  }
-  set focused(_value: boolean) {
-    // Overlay owns focus while shown.
+  attach(tui: TUI): void {
+    this.requestRender = () => tui.requestRender();
   }
 
-  invalidate(): void {}
+  detach(): void {
+    this.requestRender = undefined;
+  }
+
+  private renderSoon(): void {
+    this.requestRender?.();
+  }
 
   private get isSummaryPage(): boolean {
     return this.pageIndex >= this.blocks.length;
   }
 
-  private finish(answers: AskAnswers | null): void {
-    this.done({ answers });
+  private currentState(): QuestionState | undefined {
+    return this.isSummaryPage ? undefined : this.states[this.pageIndex];
   }
 
   private pageTitle(): string {
-    const total = this.blocks.length;
-    if (this.isSummaryPage) return `Discuss Ask · Summary`;
-    return `Discuss Question ${this.pageIndex + 1}/${total}`;
+    if (this.isSummaryPage) return "Discuss Ask · Summary";
+    return `Discuss Ask · ${this.pageIndex + 1}/${this.blocks.length}`;
   }
 
-  /** Position the cursor on the recommended option (single-choice) or 0 otherwise. */
+  private setCustomInputValue(value: string): void {
+    this.customInput.setValue(value);
+    (this.customInput as any).cursor = value.length;
+  }
+
   private resetCursorForPage(): void {
+    this.mode = "list";
+    this.customInput.focused = false;
     if (this.isSummaryPage) {
       this.cursor = 0;
       return;
     }
+
     const block = this.blocks[this.pageIndex]!;
-    const defaultIdx = block.multiple ? -1 : block.options.findIndex((opt) => opt.default);
-    // Account for items layout: [options..., (custom?), skip]. Default sits among options.
-    this.cursor = defaultIdx >= 0 ? defaultIdx : 0;
-  }
-
-  /** Render the full panel as lines, wrapped in hand-drawn borders. */
-  render(width: number): string[] {
-    const safeWidth = Math.max(20, width);
-    const lines: string[] = [topBorder(this.theme, this.pageTitle(), safeWidth)];
-
-    if (this.isSummaryPage) {
-      lines.push(...this.renderSummaryBody(safeWidth));
-    } else {
-      lines.push(...this.renderQuestionBody(safeWidth));
+    if (block.type === "text") {
+      this.mode = "custom";
+      this.setCustomInputValue(this.states[this.pageIndex]?.custom ?? "");
+      this.customInput.focused = true;
+      this.cursor = 0;
+      return;
     }
-
-    lines.push(bottomBorder(this.theme, safeWidth));
-    return lines.map((line) => padLine(line, safeWidth));
+    if (block.type === "single" && typeof block.default === "string") {
+      const defaultIndex = block.options.findIndex((option) => option.id === block.default);
+      this.cursor = defaultIndex >= 0 ? defaultIndex : 0;
+      this.prepareInlineOtherInput();
+      return;
+    }
+    this.cursor = 0;
+    this.prepareInlineOtherInput();
   }
 
-  /** Build the items list for the current question page. */
+  private gotoPage(index: number): void {
+    this.persistInlineOtherInput();
+    this.pageIndex = Math.max(0, Math.min(this.blocks.length, index));
+    this.resetCursorForPage();
+    this.renderSoon();
+  }
+
+  private advance(): void {
+    this.persistInlineOtherInput();
+    this.pageIndex = Math.min(this.blocks.length, this.pageIndex + 1);
+    this.resetCursorForPage();
+    this.renderSoon();
+  }
+
+  private submit(): void {
+    if (this.done) return;
+    this.done = true;
+    this.finish(buildAnswers(this.states), false);
+  }
+
+  close(cancelled = true): void {
+    if (this.done) return;
+    this.done = true;
+    this.finish(null, cancelled);
+  }
+
+  private saveCustom(value: string): void {
+    const state = this.currentState();
+    if (!state) return;
+    state.custom = value;
+    state.skipped = false;
+    state.selected.clear();
+    this.mode = "list";
+  }
+
+  private isInlineOtherActive(): boolean {
+    if (this.isSummaryPage || this.mode !== "list") return false;
+    const item = this.currentItems()[this.cursor];
+    return item?.kind === "other";
+  }
+
+  private prepareInlineOtherInput(): void {
+    if (this.isInlineOtherActive()) {
+      const state = this.currentState();
+      this.setCustomInputValue(state?.custom ?? "");
+      this.customInput.focused = true;
+      return;
+    }
+    if (this.mode !== "custom") this.customInput.focused = false;
+  }
+
+  private persistInlineOtherInput(forceCustom = false): void {
+    if (!this.isInlineOtherActive()) return;
+    const state = this.currentState();
+    if (!state) return;
+
+    const value = this.customInput.getValue();
+    if (!forceCustom && value.length === 0 && state.custom === undefined) return;
+    state.custom = value;
+    state.skipped = false;
+    state.selected.clear();
+  }
+
   private buildQuestionItems(state: QuestionState): AskItem[] {
     const block = state.block;
-    const items: AskItem[] = block.options.map((opt) => {
-      const prefix = block.multiple ? (state.checked.has(opt.label) ? "✓ " : "☐ ") : "";
-      const desc = opt.default ? "recommended" : undefined;
-      return { value: opt.label, label: `${prefix}${opt.label}`, description: desc };
+    const items: AskItem[] = block.options.map((option) => {
+      const selected = state.selected.has(option.id);
+      const prefix = block.type === "multiple" ? (selected ? "✓ " : "☐ ") : (selected ? "● " : "○ ");
+      return {
+        kind: "option",
+        value: option.id,
+        label: `${prefix}${option.label}`,
+        description: isDefaultOption(block, option.id) ? "recommended" : undefined,
+      } satisfies AskItem;
     });
-    if (block.allowCustom) {
+
+    if (otherEnabled(block)) {
       items.push({
-        value: CUSTOM_ITEM_VALUE,
-        label: "+ Custom answer...",
-        description: state.custom !== undefined ? `current: ${state.custom}` : undefined,
+        kind: "other",
+        label: otherLabel(block),
+        description: state.custom?.trim() ? `current: ${state.custom.trim()}` : undefined,
+        inlineInput: true,
       });
     }
+
     items.push({
-      value: SKIP_ITEM_VALUE,
-      label: "→ Skip this question",
-      description: state.skipped ? "skipped" : undefined,
+      kind: "skip",
+      label: "Decide yourself",
+      description: state.skipped ? "selected" : undefined,
     });
     return items;
   }
 
-  private renderQuestionBody(width: number): string[] {
-    const state = this.states[this.pageIndex]!;
+  private currentItems(): AskItem[] {
+    if (this.isSummaryPage) {
+      return [
+        { kind: "submit", label: "Fill editor draft", description: "not auto-sent" },
+        { kind: "back", label: "Back to questions" },
+      ];
+    }
+    const state = this.currentState();
+    return state ? this.buildQuestionItems(state) : [];
+  }
+
+  private onItemSelect(item: AskItem): void {
+    if (this.isSummaryPage) {
+      if (item.kind === "submit") this.submit();
+      else if (item.kind === "back") this.gotoPage(0);
+      return;
+    }
+
+    const state = this.currentState();
+    if (!state) return;
     const block = state.block;
-    const lines: string[] = [];
 
-    if (block.question) {
-      lines.push(boxedLine(this.theme, this.theme.fg("text", block.question), width));
-    }
-
-    if (this.subMode === "custom") {
-      return [...lines, ...this.renderCustomBody(width, state)];
-    }
-
-    if (block.hint) {
-      lines.push(boxedLine(this.theme, this.theme.fg("dim", `Hint: ${block.hint}`), width));
-    }
-    if (block.multiple) {
-      lines.push(boxedLine(this.theme, this.theme.fg("dim", "(multiple choice — Space toggles, Enter confirms)"), width));
-    }
-    lines.push(separator(this.theme, width));
-
-    const items = this.buildQuestionItems(state);
-    this.currentItems = items;
-    // Clamp cursor into range (handles option count changes from toggles).
-    if (this.cursor >= items.length) this.cursor = Math.max(0, items.length - 1);
-    lines.push(...this.renderItems(width, items));
-
-    lines.push(separator(this.theme, width));
-    lines.push(boxedLine(this.theme, this.theme.fg("dim", this.questionFooter(block)), width));
-    return lines;
-  }
-
-  private renderCustomBody(width: number, state: QuestionState): string[] {
-    this.customInput.setValue(state.custom ?? "");
-    const lines: string[] = [
-      boxedLine(this.theme, this.theme.fg("accent", "Custom answer:"), width),
-      separator(this.theme, width),
-    ];
-    const inputLines = this.customInput.render(Math.max(1, width - 2));
-    for (const l of inputLines) {
-      lines.push(this.theme.fg("border", "│") + l + this.theme.fg("border", "│"));
-    }
-    lines.push(separator(this.theme, width));
-    lines.push(boxedLine(this.theme, this.theme.fg("dim", "Enter submit · Esc back to options"), width));
-    this.customInput.onSubmit = (value) => {
-      state.custom = value;
-      state.skipped = false;
-      state.checked.clear();
-      state.singleChoice = undefined;
-      this.subMode = "list";
+    if (item.kind === "other") {
+      this.persistInlineOtherInput(true);
       this.advance();
-    };
-    return lines;
-  }
-
-  private renderSummaryBody(width: number): string[] {
-    const lines: string[] = [
-      boxedLine(this.theme, this.theme.fg("dim", "Unanswered questions are submitted as skipped; the AI decides itself."), width),
-      separator(this.theme, width),
-    ];
-
-    for (const state of this.states) {
-      const preview = previewAnswer(state);
-      lines.push(boxedLine(this.theme, this.theme.fg("muted", `${state.block.id}: `) + this.theme.fg("text", preview), width));
+      return;
     }
 
-    lines.push(separator(this.theme, width));
-    const items: AskItem[] = [
-      { value: SUBMIT_ITEM_VALUE, label: "✓ Submit all answers", description: "Fill editor (not auto-sent)" },
-      { value: BACK_ITEM_VALUE, label: "← Back to edit", description: "Return to first question" },
-    ];
-    this.currentItems = items;
-    if (this.cursor >= items.length) this.cursor = 0;
-    lines.push(...this.renderItems(width, items));
+    if (item.kind === "skip") {
+      state.skipped = true;
+      state.custom = undefined;
+      state.selected.clear();
+      this.advance();
+      return;
+    }
 
-    lines.push(separator(this.theme, width));
-    lines.push(boxedLine(this.theme, this.theme.fg("dim", "↑/↓ navigate · Enter confirm · Esc cancel all"), width));
-    return lines;
+    if (item.kind !== "option" || !item.value) return;
+
+    state.skipped = false;
+    state.custom = undefined;
+    if (block.type === "multiple") {
+      // Enter confirms the current multiple-choice state; Space toggles options.
+      this.advance();
+      return;
+    }
+
+    if (state.selected.size === 0) {
+      state.selected.add(item.value);
+    }
+    this.advance();
   }
 
-  /**
-   * Render a scrollable, self-drawn item list with a cursor marker (›) and
-   * accent highlight on the selected row. Each row is boxed so content never
-   * overflows the borders.
-   */
-  private renderItems(width: number, items: AskItem[]): string[] {
-    const lines: string[] = [];
+  private selectCurrentOption(): void {
+    const state = this.currentState();
+    if (!state) return;
+    const item = this.currentItems()[this.cursor];
+    if (!item || item.kind !== "option" || !item.value) return;
+
+    state.skipped = false;
+    state.custom = undefined;
+    if (state.block.type === "multiple") {
+      if (state.selected.has(item.value)) state.selected.delete(item.value);
+      else state.selected.add(item.value);
+    } else {
+      state.selected.clear();
+      state.selected.add(item.value);
+    }
+    this.customInput.focused = false;
+    this.renderSoon();
+  }
+
+  private moveCursor(delta: number): void {
+    const items = this.currentItems();
+    const max = Math.max(0, items.length - 1);
+    const next = Math.max(0, Math.min(max, this.cursor + delta));
+    if (next === this.cursor) return;
+
+    this.persistInlineOtherInput();
+    this.cursor = next;
+    this.prepareInlineOtherInput();
+    this.renderSoon();
+  }
+
+  private jumpCursor(delta: number): void {
+    const items = this.currentItems();
+    const max = Math.max(0, items.length - 1);
+    const next = Math.max(0, Math.min(max, this.cursor + delta));
+    if (next === this.cursor) return;
+
+    this.persistInlineOtherInput();
+    this.cursor = next;
+    this.prepareInlineOtherInput();
+    this.renderSoon();
+  }
+
+  handleInput(data: string): boolean {
+    if (matchesKey(data, Key.alt("k"))) return false;
+
+    if (isCtrlEnter(data)) {
+      if (this.mode === "custom") this.saveCustom(this.customInput.getValue());
+      else this.persistInlineOtherInput();
+      this.submit();
+      return true;
+    }
+
+    if (this.mode === "custom") {
+      if (matchesKey(data, Key.escape)) {
+        this.mode = "list";
+        this.customInput.focused = false;
+        this.renderSoon();
+        return true;
+      }
+      const before = this.customInput.getValue();
+      this.customInput.handleInput(data);
+      if (this.customInput.getValue() !== before) this.renderSoon();
+      return true;
+    }
+
+    if (matchesKey(data, Key.escape)) {
+      this.close(true);
+      return true;
+    }
+    if (matchesKey(data, Key.shift("tab"))) {
+      this.gotoPage(this.pageIndex - 1);
+      return true;
+    }
+    if (matchesKey(data, Key.tab)) {
+      this.gotoPage(this.pageIndex + 1);
+      return true;
+    }
+
+    const items = this.currentItems();
+    const inlineOtherActive = this.isInlineOtherActive();
+
+    if (matchesKey(data, Key.up)) {
+      this.moveCursor(-1);
+      return true;
+    }
+    if (matchesKey(data, Key.down)) {
+      this.moveCursor(1);
+      return true;
+    }
+    if (matchesKey(data, Key.pageUp)) {
+      this.jumpCursor(-VISIBLE_ITEMS);
+      return true;
+    }
+    if (matchesKey(data, Key.pageDown)) {
+      this.jumpCursor(VISIBLE_ITEMS);
+      return true;
+    }
+    if (matchesKey(data, Key.enter) || matchesKey(data, Key.return)) {
+      const item = items[this.cursor];
+      if (item) this.onItemSelect(item);
+      return true;
+    }
+
+    if (inlineOtherActive) {
+      const before = this.customInput.getValue();
+      this.customInput.handleInput(data);
+      if (this.customInput.getValue() !== before) {
+        this.persistInlineOtherInput();
+        this.renderSoon();
+      }
+      return true;
+    }
+
+    if (matchesKey(data, Key.left)) {
+      this.gotoPage(this.pageIndex - 1);
+      return true;
+    }
+    if (matchesKey(data, Key.right)) {
+      this.gotoPage(this.pageIndex + 1);
+      return true;
+    }
+    if (data === " ") {
+      this.selectCurrentOption();
+      return true;
+    }
+    if (data === "s") {
+      const state = this.currentState();
+      if (state) {
+        state.skipped = true;
+        state.custom = undefined;
+        state.selected.clear();
+        this.customInput.focused = false;
+        this.advance();
+      }
+      return true;
+    }
+
+    // The active panel owns focus; consume unhandled printable keys so they do
+    // not leak into the main editor while the human is answering.
+    return true;
+  }
+
+  render(theme: any, width: number): string[] {
+    const safeWidth = Math.max(30, width);
+    const lines: string[] = [topBorder(theme, this.pageTitle(), safeWidth)];
+
+    if (this.isSummaryPage) {
+      this.renderSummary(theme, safeWidth, lines);
+    } else if (this.mode === "custom") {
+      this.renderCustom(theme, safeWidth, lines);
+    } else {
+      this.renderQuestion(theme, safeWidth, lines);
+    }
+
+    lines.push(bottomBorder(theme, safeWidth));
+    return lines.map((line) => padLine(line, safeWidth));
+  }
+
+  private renderQuestion(theme: any, width: number, lines: string[]): void {
+    const state = this.currentState();
+    if (!state) return;
+    const block = state.block;
+
+    pushWrappedBoxedLine(lines, theme, theme.fg("text", block.question), width, 2);
+    if (block.hint) pushWrappedBoxedLine(lines, theme, theme.fg("dim", `Hint: ${block.hint}`), width, 1);
+    if (block.type === "multiple") {
+      lines.push(boxedLine(theme, theme.fg("dim", "Multiple choice — Space toggles options; Enter confirms."), width));
+    } else if (block.type === "single") {
+      lines.push(boxedLine(theme, theme.fg("dim", "Single choice — Space selects; Enter confirms."), width));
+    }
+    lines.push(separator(theme, width));
+
+    const items = this.currentItems();
+    if (this.cursor >= items.length) this.cursor = Math.max(0, items.length - 1);
+    this.renderItems(theme, width, lines, items);
+
+    lines.push(separator(theme, width));
+    lines.push(boxedLine(
+      theme,
+      theme.fg("dim", "↑/↓ select · Space choose/toggle · Enter confirm · Tab switch · Ctrl+Enter fill draft · Esc close"),
+      width,
+    ));
+  }
+
+  private renderCustom(theme: any, width: number, lines: string[]): void {
+    const state = this.currentState();
+    if (!state) return;
+    const block = state.block;
+
+    pushWrappedBoxedLine(lines, theme, theme.fg("text", block.question), width, 2);
+    lines.push(boxedLine(theme, theme.fg("accent", otherLabel(block)), width));
+    lines.push(separator(theme, width));
+
+    this.customInput.focused = true;
+    const placeholder = block.other?.placeholder?.trim();
+    const rawInput = this.customInput.getValue();
+    const inputLines = this.customInput.render(Math.max(1, width - 4));
+    const renderedInput = rawInput || !placeholder
+      ? inputLines[0] ?? ""
+      : theme.fg("dim", placeholder);
+    lines.push(boxedLine(theme, `  ${renderedInput}`, width));
+
+    lines.push(separator(theme, width));
+    lines.push(boxedLine(theme, theme.fg("dim", "Enter confirm · Ctrl+Enter fill draft · Esc back to options"), width));
+  }
+
+  private renderSummary(theme: any, width: number, lines: string[]): void {
+    lines.push(boxedLine(theme, theme.fg("dim", "Unanswered questions will be left for the AI to decide."), width));
+    lines.push(separator(theme, width));
+
+    for (const state of this.states.slice(0, VISIBLE_ITEMS)) {
+      const preview = previewAnswer(state);
+      lines.push(boxedLine(theme, theme.fg("muted", "• ") + theme.fg("text", preview), width));
+    }
+    if (this.states.length > VISIBLE_ITEMS) {
+      lines.push(boxedLine(theme, theme.fg("dim", `… ${this.states.length - VISIBLE_ITEMS} more`), width));
+    }
+
+    lines.push(separator(theme, width));
+    const items = this.currentItems();
+    if (this.cursor >= items.length) this.cursor = Math.max(0, items.length - 1);
+    this.renderItems(theme, width, lines, items);
+    lines.push(separator(theme, width));
+    lines.push(boxedLine(theme, theme.fg("dim", "Enter select · Ctrl+Enter fill draft · Esc close"), width));
+  }
+
+  private renderItems(theme: any, width: number, lines: string[], items: AskItem[]): void {
     if (items.length === 0) {
-      lines.push(boxedLine(this.theme, this.theme.fg("warning", "(no items)"), width));
-      return lines;
+      lines.push(boxedLine(theme, theme.fg("warning", "(no items)"), width));
+      return;
     }
 
     const start = windowStart(this.cursor, items.length, VISIBLE_ITEMS);
@@ -368,185 +647,136 @@ class AskPagedPanel implements Component, Focusable {
       const item = visible[i]!;
       const selected = itemIndex === this.cursor;
       const marker = selected ? "›" : " ";
-      const descSuffix = item.description ? ` ${this.theme.fg("dim", `(${item.description})`)}` : "";
-      const body = `${marker} ${item.label}${descSuffix}`;
-      const content = selected ? this.theme.fg("accent", body) : body;
-      lines.push(boxedLine(this.theme, content, width));
+      let body: string;
+
+      if (selected && item.kind === "other" && item.inlineInput) {
+        this.customInput.focused = true;
+        const label = `${marker} ${item.label}: `;
+        const placeholder = this.currentState()?.block.other?.placeholder?.trim();
+        const inputWidth = Math.max(8, width - visibleWidth(stripCursorMarker(label)) - 4);
+        const inputLine = (this.customInput.render(inputWidth)[0] ?? "").trimEnd();
+        const placeholderHint = !this.customInput.getValue().trim() && placeholder
+          ? ` ${theme.fg("dim", placeholder)}`
+          : "";
+        body = `${label}${inputLine}${placeholderHint}`;
+      } else {
+        const desc = item.description ? ` ${theme.fg("dim", `(${item.description})`)}` : "";
+        body = `${marker} ${item.label}${desc}`;
+      }
+
+      lines.push(boxedLine(theme, selected ? theme.fg("accent", body) : body, width));
     }
 
     if (items.length > VISIBLE_ITEMS) {
       const hiddenBefore = start;
       const hiddenAfter = Math.max(0, items.length - start - VISIBLE_ITEMS);
-      lines.push(boxedLine(this.theme, this.theme.fg("dim", `↑ ${hiddenBefore} more · ↓ ${hiddenAfter} more`), width));
-    }
-
-    return lines;
-  }
-
-  private questionFooter(block: AskBlock): string {
-    const parts = ["↑/↓ navigate", "←/→ switch question"];
-    if (block.multiple) parts.push("Space toggle");
-    if (block.allowCustom) parts.push("c custom");
-    parts.push("s skip", "Esc cancel all");
-    return parts.join(" · ");
-  }
-
-  private advance(): void {
-    this.pageIndex = Math.min(this.pageIndex + 1, this.blocks.length);
-    this.resetCursorForPage();
-    this.tui.requestRender();
-  }
-
-  private gotoPage(index: number): void {
-    this.pageIndex = Math.max(0, Math.min(this.blocks.length, index));
-    this.resetCursorForPage();
-    this.tui.requestRender();
-  }
-
-  private onItemSelect(item: AskItem): void {
-    if (this.subMode === "custom") return;
-    if (this.isSummaryPage) {
-      if (item.value === SUBMIT_ITEM_VALUE) {
-        const answers: AskAnswers = {};
-        this.states.forEach((state) => { answers[state.block.id] = answerFor(state); });
-        this.finish(answers);
-      } else if (item.value === BACK_ITEM_VALUE) {
-        this.gotoPage(0);
-      }
-      return;
-    }
-
-    const state = this.states[this.pageIndex]!;
-    const block = state.block;
-
-    if (item.value === CUSTOM_ITEM_VALUE) {
-      this.subMode = "custom";
-      this.tui.requestRender();
-      return;
-    }
-    if (item.value === SKIP_ITEM_VALUE) {
-      state.skipped = true;
-      state.custom = undefined;
-      state.checked.clear();
-      state.singleChoice = undefined;
-      this.advance();
-      return;
-    }
-
-    state.skipped = false;
-    state.custom = undefined;
-    if (block.multiple) {
-      if (state.checked.has(item.value)) state.checked.delete(item.value);
-      else state.checked.add(item.value);
-      this.tui.requestRender();
-      return;
-    }
-    state.singleChoice = item.value;
-    this.advance();
-  }
-
-  handleInput(data: string): void {
-    if (this.subMode === "custom") {
-      if (matchesKey(data, Key.escape)) {
-        this.subMode = "list";
-        this.tui.requestRender();
-        return;
-      }
-      const before = this.customInput.getValue();
-      this.customInput.handleInput(data);
-      if (this.customInput.getValue() !== before) this.tui.requestRender();
-      return;
-    }
-
-    if (matchesKey(data, Key.escape)) {
-      this.finish(null);
-      return;
-    }
-    if (matchesKey(data, Key.left)) {
-      this.gotoPage(this.pageIndex - 1);
-      return;
-    }
-    if (matchesKey(data, Key.right)) {
-      this.gotoPage(this.pageIndex + 1);
-      return;
-    }
-
-    const items = this.currentItems;
-    const max = Math.max(0, items.length - 1);
-
-    if (matchesKey(data, Key.up)) {
-      this.cursor = Math.max(0, this.cursor - 1);
-      this.tui.requestRender();
-      return;
-    }
-    if (matchesKey(data, Key.down)) {
-      this.cursor = Math.min(max, this.cursor + 1);
-      this.tui.requestRender();
-      return;
-    }
-    if (matchesKey(data, Key.pageUp)) {
-      this.cursor = Math.max(0, this.cursor - VISIBLE_ITEMS);
-      this.tui.requestRender();
-      return;
-    }
-    if (matchesKey(data, Key.pageDown)) {
-      this.cursor = Math.min(max, this.cursor + VISIBLE_ITEMS);
-      this.tui.requestRender();
-      return;
-    }
-
-    if (matchesKey(data, Key.enter) || matchesKey(data, Key.return)) {
-      const item = items[this.cursor];
-      if (item) this.onItemSelect(item);
-      return;
-    }
-
-    if (!this.isSummaryPage) {
-      const state = this.states[this.pageIndex]!;
-      const block = state.block;
-      if (data === " " && block.multiple) {
-        // Toggle the option under the cursor (skip the skip/custom meta items).
-        const item = items[this.cursor];
-        if (item && item.value !== CUSTOM_ITEM_VALUE && item.value !== SKIP_ITEM_VALUE) {
-          if (state.checked.has(item.value)) state.checked.delete(item.value);
-          else state.checked.add(item.value);
-          this.tui.requestRender();
-        }
-        return;
-      }
-      if (data === "s") {
-        state.skipped = true;
-        state.custom = undefined;
-        state.checked.clear();
-        state.singleChoice = undefined;
-        this.advance();
-        return;
-      }
-      if (data === "c" && block.allowCustom) {
-        this.subMode = "custom";
-        this.tui.requestRender();
-        return;
-      }
+      lines.push(boxedLine(theme, theme.fg("dim", `↑ ${hiddenBefore} more · ↓ ${hiddenAfter} more`), width));
     }
   }
 }
 
-/** Fallback for non-TUI modes: linear select per question. */
+class AskPanelWidget implements Component {
+  constructor(
+    private readonly controller: AskPanelController,
+    tui: TUI,
+    private readonly theme: any,
+  ) {
+    controller.attach(tui);
+  }
+
+  invalidate(): void {}
+
+  dispose(): void {
+    this.controller.detach();
+  }
+
+  render(width: number): string[] {
+    return this.controller.render(this.theme, Math.max(1, width));
+  }
+}
+
+class AskSummaryWidget implements Component {
+  constructor(private readonly summary: AskSummary, private readonly theme: any) {}
+
+  invalidate(): void {}
+
+  render(width: number): string[] {
+    const total = this.summary.blocks.length;
+    const answered = this.summary.answers
+      ? countAnsweredAskQuestions(this.summary.blocks, this.summary.answers)
+      : 0;
+    const status = this.summary.cancelled
+      ? `${total} questions · cancelled`
+      : `${answered}/${total} questions answered`;
+    return [
+      truncateToWidth(
+        this.theme.fg("accent", "Discuss Ask") +
+          this.theme.fg("dim", ` · ${status} · Alt+K reopen`),
+        Math.max(1, width),
+        "…",
+        true,
+      ),
+    ];
+  }
+}
+
+function showSummaryWidget(ctx: ExtensionContext, blocks: AskBlock[], answers: AskAnswers | null, cancelled: boolean): void {
+  const summary = { blocks, answers, cancelled } satisfies AskSummary;
+  if (!ctx.hasUI) return;
+  ctx.ui.setWidget(
+    ASK_WIDGET_KEY,
+    (_tui: TUI, theme: any) => new AskSummaryWidget(summary, theme),
+    { placement: "aboveEditor" },
+  );
+}
+
+function clearActivePanel(): void {
+  activeController = null;
+}
+
+/** Route prompt-editor input to the active ask widget. */
+export function handleAskPanelInput(data: string): boolean {
+  return activeController?.handleInput(data) ?? false;
+}
+
+export function clearAskPanelWidget(ctx: ExtensionContext): void {
+  clearActivePanel();
+  if (ctx.hasUI) ctx.ui.setWidget(ASK_WIDGET_KEY, undefined);
+}
+
+/** Fallback for non-TUI modes: linear select/input per question. */
 async function fallbackSelect(ctx: ExtensionContext, blocks: AskBlock[]): Promise<AskAnswers | null> {
   const answers: AskAnswers = {};
   for (const block of blocks) {
-    const labels = block.options.map((o) => o.label);
-    const picked = await ctx.ui.select(block.question ?? block.id, labels);
-    answers[block.id] = picked === undefined
-      ? { kind: "skipped" }
-      : { kind: "selected", values: [picked] };
+    if (block.type === "text" || block.options.length === 0) {
+      const value = await ctx.ui.input(block.question, block.other?.placeholder);
+      answers[block.id] = value?.trim() ? { kind: "custom", value } : { kind: "skipped" };
+      continue;
+    }
+
+    const other = otherEnabled(block) ? otherLabel(block) : undefined;
+    const labels = [...block.options.map((option) => option.label), ...(other ? [other] : [])];
+    const picked = await ctx.ui.select(block.question, labels);
+    if (!picked) {
+      answers[block.id] = { kind: "skipped" };
+      continue;
+    }
+
+    if (other && picked === other) {
+      const value = await ctx.ui.input(block.question, block.other?.placeholder);
+      answers[block.id] = value?.trim() ? { kind: "custom", value } : { kind: "skipped" };
+      continue;
+    }
+
+    const option = block.options.find((candidate) => candidate.label === picked);
+    answers[block.id] = option ? { kind: "selected", optionIds: [option.id] } : { kind: "skipped" };
   }
   return answers;
 }
 
 /**
- * Open the ask panel overlay for the given blocks. Returns answers, or null if
- * cancelled or unavailable.
+ * Open the non-overlay ask panel widget. Returns answers when the human fills the
+ * editor draft, or null when the panel is cancelled/unavailable.
  */
 export async function openAskPanel(
   ctx: ExtensionContext,
@@ -559,26 +789,27 @@ export async function openAskPanel(
     return fallbackSelect(ctx, blocks);
   }
 
-  const result = await ctx.ui.custom<PanelResult>(
-    (tui, theme, _kb, done) => new AskPagedPanel(tui, theme, blocks, done),
-    {
-      overlay: true,
-      overlayOptions: {
-        anchor: "center",
-        width: "80%",
-        minWidth: 50,
-        maxHeight: "80%",
-        margin: 1,
-      },
-    },
-  );
+  activeController?.close(false);
 
-  return result?.answers ?? null;
+  return await new Promise<AskAnswers | null>((resolve) => {
+    const controller = new AskPanelController(blocks, (answers, cancelled) => {
+      if (activeController === controller) clearActivePanel();
+      showSummaryWidget(ctx, blocks, answers, cancelled);
+      resolve(answers);
+    });
+
+    activeController = controller;
+    ctx.ui.setWidget(
+      ASK_WIDGET_KEY,
+      (tui: TUI, theme: any) => new AskPanelWidget(controller, tui, theme),
+      { placement: "aboveEditor" },
+    );
+  });
 }
 
 /**
- * Reopen the most recent discuss question batch (Alt+K in the editor).
- * Reads cached blocks from the logic layer. Reopened panels start fresh.
+ * Reopen the most recent assistant ask question batch (Alt+K in the editor).
+ * Reopened panels start fresh; previous selections are not retained.
  */
 export async function reopenAskPanel(ctx: ExtensionContext): Promise<void> {
   if (!ctx.hasUI || ctx.mode !== "tui") {
@@ -590,39 +821,17 @@ export async function reopenAskPanel(ctx: ExtensionContext): Promise<void> {
     return;
   }
 
-  const blocks = getLastAskBlocks();
+  const blocks = getLastAskBlocks(ctx);
   if (blocks.length === 0) {
     ctx.ui.notify("No recent discuss questions to reopen.", "info");
     return;
   }
 
-  ctx.ui.notify("Reopened — previous selections were not kept.", "info");
   const answers = await openAskPanel(ctx, blocks);
   if (!answers) return;
   try {
-    ctx.ui.setEditorText(`? ${formatAnswersFromBlocks(blocks, answers)}`);
+    ctx.ui.setEditorText(`? ${formatAskAnswers(blocks, answers)}`);
   } catch {
     // UI may have been torn down; non-fatal.
   }
-}
-
-// Local formatter mirror (avoids importing formatAskAnswers to keep this module
-// decoupled from the logic layer's answer formatter; identical output shape).
-function formatAnswersFromBlocks(blocks: AskBlock[], answers: AskAnswers): string {
-  const lines = ["[Discuss answers]"];
-  for (const block of blocks) {
-    const answer = answers[block.id];
-    let value: string;
-    if (!answer) {
-      value = "(skipped — 你自行判断决定)";
-    } else if (answer.kind === "selected") {
-      value = answer.values.length > 0 ? answer.values.join("; ") : "(none selected)";
-    } else if (answer.kind === "custom") {
-      value = answer.value.trim() ? answer.value.trim() : "(empty custom)";
-    } else {
-      value = "(skipped — 你自行判断决定)";
-    }
-    lines.push(`- ${block.id}: ${value}`);
-  }
-  return lines.join("\n");
 }

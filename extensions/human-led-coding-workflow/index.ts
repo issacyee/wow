@@ -62,6 +62,7 @@ import {
   collectAskBlocks,
   formatAskAnswers,
   getAskPanelTrigger,
+  hasAskMetadata,
   type AskBlock,
 } from "./ask.ts";
 import { isSafeCommand } from "../wow/safe.ts";
@@ -91,11 +92,37 @@ let hasExecutionAdjustment = false;
 let planFromPreviousDiscussion = false;
 let executionProgressDirty = false;
 
-/** Most recent discuss turn's parsed ask blocks, for Alt+K reopen. */
+/** Most recent assistant ask blocks, for Alt+K reopen. */
 let lastAskBlocks: AskBlock[] = [];
 
-/** Return the most recent discuss ask blocks (for the Alt+K reopen trigger). */
-export function getLastAskBlocks(): AskBlock[] {
+function findLastAskBlocksInBranch(ctx: ExtensionContext): AskBlock[] {
+  let branch: any[];
+  try {
+    branch = ctx.sessionManager.getBranch() as any[];
+  } catch {
+    return [];
+  }
+
+  for (let i = branch.length - 1; i >= 0; i--) {
+    const entry = branch[i];
+    if (entry?.type !== "message" || !isAssistantMessage(entry.message)) continue;
+
+    const blocks = collectAskBlocks(getTextContent(entry.message));
+    if (blocks.length > 0) {
+      lastAskBlocks = blocks;
+      return blocks;
+    }
+  }
+
+  return [];
+}
+
+/** Return the most recent assistant ask blocks (for the Alt+K reopen trigger). */
+export function getLastAskBlocks(ctx?: ExtensionContext): AskBlock[] {
+  if (ctx) {
+    const branchBlocks = findLastAskBlocksInBranch(ctx);
+    if (branchBlocks.length > 0) return branchBlocks;
+  }
   return lastAskBlocks;
 }
 
@@ -136,7 +163,7 @@ function queueExecutionSummaryMessage(
 }
 
 /**
- * After a discuss turn, if the assistant emitted any `:::ask` blocks, open the
+ * After a discuss turn, if the assistant emitted valid ask metadata, open the
  * ask panel (once the agent is idle) and fill the chosen answers into the editor
  * so the human can append notes and send. Cancelled panels leave the editor as-is.
  */
@@ -156,7 +183,7 @@ function queueDiscussAskPanel(ctx: ExtensionContext, blocks: AskBlock[], attempt
       .then((answers) => {
         if (!answers) return; // user cancelled — leave editor untouched
         try {
-          ctx.ui.setEditorText(`? ${formatAskAnswers(answers)}`);
+          ctx.ui.setEditorText(`? ${formatAskAnswers(blocks, answers)}`);
         } catch {
           // UI may have been torn down; non-fatal.
         }
@@ -586,10 +613,13 @@ export default function humanLedCodingWorkflowExtension(pi: ExtensionAPI): void 
     const turnMode = getTurnMode();
 
     if (turnMode === "discuss") {
-      const askBlocks = collectAskBlocks(getLatestAssistantText(event.messages));
+      const latestText = getLatestAssistantText(event.messages);
+      const askBlocks = collectAskBlocks(latestText);
       lastAskBlocks = askBlocks; // cache for Alt+K reopen, even if panel was cancelled
       if (askBlocks.length > 0) {
         queueDiscussAskPanel(ctx, askBlocks);
+      } else if (hasAskMetadata(latestText)) {
+        notify(ctx, "Ask metadata invalid", "warning");
       }
     }
 

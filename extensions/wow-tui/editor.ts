@@ -46,6 +46,7 @@ export class WowCompositeEditor extends CustomEditor {
     private readonly onHistoryPeek?: () => void,
     private readonly onClearHistoryPeek?: () => void,
     private readonly onReopenAsk?: () => void,
+    private readonly onAskPanelInput?: (data: string) => boolean,
   ) {
     super(tui, theme, keybindings);
     this._storedBorderColor = theme.borderColor;
@@ -59,6 +60,10 @@ export class WowCompositeEditor extends CustomEditor {
   }
 
   handleInput(data: string): void {
+    if (!matchesKey(data, Key.alt("k")) && this.onAskPanelInput?.(data)) {
+      return;
+    }
+
     if (matchesKey(data, Key.ctrl("r"))) {
       this.onHistoryPeek?.();
       return;
@@ -130,6 +135,17 @@ export function createEditorComponent(
   wowTheme: any,
   onHistoryPeek?: () => void,
   onClearHistoryPeek?: () => void,
+  onReopenAsk?: () => void,
+  onAskPanelInput?: (data: string) => boolean,
 ): WowCompositeEditor {
-  return new WowCompositeEditor(tui, theme, keybindings, wowTheme, onHistoryPeek, onClearHistoryPeek);
+  return new WowCompositeEditor(
+    tui,
+    theme,
+    keybindings,
+    wowTheme,
+    onHistoryPeek,
+    onClearHistoryPeek,
+    onReopenAsk,
+    onAskPanelInput,
+  );
 }
