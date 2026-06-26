@@ -3,7 +3,7 @@
  *
  * Reads raw pi settings.json values (outside the framework SettingsManager)
  * with project-then-global resolution, so logic extensions can read custom
- * Wow keys such as `wow.discussLevel` without importing TUI code.
+ * Wow keys without importing TUI code.
  *
  * Path rules mirror `wow-tui/config-ui.ts`:
  *   - global:  getAgentDir()/settings.json
@@ -16,15 +16,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
-
-// ── Discuss-mode answer-quality strictness ──
-
-/** Allowed values for `wow.discussLevel`. */
-export const DISCUSS_LEVEL_VALUES = ["standard", "strict"] as const;
-export type DiscussLevel = (typeof DISCUSS_LEVEL_VALUES)[number];
-
-/** Built-in default when neither project nor global sets `wow.discussLevel`. */
-export const DISCUSS_LEVEL_DEFAULT: DiscussLevel = "standard";
 
 // ── Path helpers (must match wow-tui/config-ui.ts) ──
 
@@ -75,16 +66,4 @@ export function readWowSetting(path: string[], options?: { cwd?: string }): unkn
     if (globalValue !== undefined) return globalValue;
   }
   return undefined;
-}
-
-/**
- * Resolve `wow.discussLevel` to a valid {@link DiscussLevel}, falling back to
- * {@link DISCUSS_LEVEL_DEFAULT} when unset or invalid.
- */
-export function resolveDiscussLevel(cwd?: string): DiscussLevel {
-  const raw = readWowSetting(["wow", "discussLevel"], { cwd });
-  if (typeof raw === "string" && (DISCUSS_LEVEL_VALUES as readonly string[]).includes(raw)) {
-    return raw as DiscussLevel;
-  }
-  return DISCUSS_LEVEL_DEFAULT;
 }

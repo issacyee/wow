@@ -60,7 +60,7 @@ export class WowCompositeEditor extends CustomEditor {
   }
 
   handleInput(data: string): void {
-    if (!matchesKey(data, Key.alt("k")) && this.onAskPanelInput?.(data)) {
+    if (!matchesKey(data, Key.ctrlAlt("a")) && this.onAskPanelInput?.(data)) {
       return;
     }
 
@@ -74,7 +74,7 @@ export class WowCompositeEditor extends CustomEditor {
       return;
     }
 
-    if (matchesKey(data, Key.alt("k"))) {
+    if (matchesKey(data, Key.ctrlAlt("a"))) {
       this.onReopenAsk?.();
       return;
     }

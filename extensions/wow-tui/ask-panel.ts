@@ -32,7 +32,6 @@ import {
   type TUI,
 } from "@earendil-works/pi-tui";
 import {
-  countAnsweredAskQuestions,
   formatAskAnswers,
   type AskAnswer,
   type AskAnswers,
@@ -59,12 +58,6 @@ interface AskItem {
   label: string;
   description?: string;
   inlineInput?: boolean;
-}
-
-interface AskSummary {
-  blocks: AskBlock[];
-  answers: AskAnswers | null;
-  cancelled: boolean;
 }
 
 let activeController: AskPanelController | null = null;
@@ -401,9 +394,8 @@ class AskPanelController {
       return;
     }
 
-    if (state.selected.size === 0) {
-      state.selected.add(item.value);
-    }
+    state.selected.clear();
+    state.selected.add(item.value);
     this.advance();
   }
 
@@ -451,7 +443,7 @@ class AskPanelController {
   }
 
   handleInput(data: string): boolean {
-    if (matchesKey(data, Key.alt("k"))) return false;
+    if (matchesKey(data, Key.ctrlAlt("a"))) return false;
 
     if (isCtrlEnter(data)) {
       if (this.mode === "custom") this.saveCustom(this.customInput.getValue());
@@ -576,7 +568,7 @@ class AskPanelController {
     if (block.type === "multiple") {
       lines.push(boxedLine(theme, theme.fg("dim", "Multiple choice — Space toggles options; Enter confirms."), width));
     } else if (block.type === "single") {
-      lines.push(boxedLine(theme, theme.fg("dim", "Single choice — Space selects; Enter confirms."), width));
+      lines.push(boxedLine(theme, theme.fg("dim", "Single choice — Enter selects and confirms; Space selects only."), width));
     }
     lines.push(separator(theme, width));
 
@@ -695,41 +687,6 @@ class AskPanelWidget implements Component {
   }
 }
 
-class AskSummaryWidget implements Component {
-  constructor(private readonly summary: AskSummary, private readonly theme: any) {}
-
-  invalidate(): void {}
-
-  render(width: number): string[] {
-    const total = this.summary.blocks.length;
-    const answered = this.summary.answers
-      ? countAnsweredAskQuestions(this.summary.blocks, this.summary.answers)
-      : 0;
-    const status = this.summary.cancelled
-      ? `${total} questions · cancelled`
-      : `${answered}/${total} questions answered`;
-    return [
-      truncateToWidth(
-        this.theme.fg("accent", "Discuss Ask") +
-          this.theme.fg("dim", ` · ${status} · Alt+K reopen`),
-        Math.max(1, width),
-        "…",
-        true,
-      ),
-    ];
-  }
-}
-
-function showSummaryWidget(ctx: ExtensionContext, blocks: AskBlock[], answers: AskAnswers | null, cancelled: boolean): void {
-  const summary = { blocks, answers, cancelled } satisfies AskSummary;
-  if (!ctx.hasUI) return;
-  ctx.ui.setWidget(
-    ASK_WIDGET_KEY,
-    (_tui: TUI, theme: any) => new AskSummaryWidget(summary, theme),
-    { placement: "aboveEditor" },
-  );
-}
-
 function clearActivePanel(): void {
   activeController = null;
 }
@@ -794,7 +751,7 @@ export async function openAskPanel(
   return await new Promise<AskAnswers | null>((resolve) => {
     const controller = new AskPanelController(blocks, (answers, cancelled) => {
       if (activeController === controller) clearActivePanel();
-      showSummaryWidget(ctx, blocks, answers, cancelled);
+      if (ctx.hasUI) ctx.ui.setWidget(ASK_WIDGET_KEY, undefined);
       resolve(answers);
     });
 
@@ -808,7 +765,7 @@ export async function openAskPanel(
 }
 
 /**
- * Reopen the most recent assistant ask question batch (Alt+K in the editor).
+ * Reopen the most recent assistant ask question batch (Ctrl+Alt+A in the editor).
  * Reopened panels start fresh; previous selections are not retained.
  */
 export async function reopenAskPanel(ctx: ExtensionContext): Promise<void> {

@@ -19,8 +19,7 @@ wow/
 │   │   ├── html.ts          # HTML → Markdown/Text conversion helpers
 │   │   ├── shell.ts         # Sync command execution wrappers
 │   │   ├── safe.ts          # Read-only bash safety check
-│   │   ├── quality.ts       # Answer-quality reminder builder (discuss strict mode)
-│   │   ├── settings.ts      # Shared settings.json reader and discuss-level config
+│   │   ├── settings.ts      # Shared settings.json reader
 │   │   └── tips.ts          # Shared working-tip registry
 │   ├── locale/              # OS-locale language policy via before_agent_start
 │   │   ├── index.ts         # Appends OS-locale hard language directive to the system prompt
@@ -118,8 +117,7 @@ Sub-modules:
 - **html.ts** — `convertHTMLToMarkdown()`, `extractTextFromHTML()`, `stripTags()`, `isRasterImage()`, `STRIP_TAGS`. AST-based HTML conversion via node-html-markdown.
 - **shell.ts** — `execOrNull()`, `execWithError()`. Synchronous command execution wrappers with error handling.
 - **safe.ts** — `isSafeCommand()`. Shared read-only bash allowlist used by workflow gates.
-- **quality.ts** — `buildAnswerQualityReminder()`. Self-contained reminder used only by discuss mode at the `strict` level.
-- **settings.ts** — `readWowSetting()`, `resolveDiscussLevel()`, `DISCUSS_LEVEL_VALUES`, `DISCUSS_LEVEL_DEFAULT`. Shared settings.json reader (project-then-global resolution, never throws) and the `wow.discussLevel` config; used by logic extensions to read custom Wow keys without importing TUI code.
+- **settings.ts** — `readWowSetting()`. Shared settings.json reader (project-then-global resolution, never throws) used by logic extensions to read custom Wow keys without importing TUI code.
 - **tips.ts** — `registerWowTips()`, `getWowTips()`, `clearWowTips()`. Shared UI-only working-tip registry used by feature extensions and `wow-tui`.
 
 ### locale
@@ -140,7 +138,7 @@ A human-led coding workflow triggered by `?`/`??`/`?!`/`$` input prefixes. Norma
 - `EXECUTE_MARKER` (`"Ready to execute?"`) is the bridge between planning/revision and execution. Plans are captured from reverse-scanned assistant messages at `agent_end`.
 - Plans use Goals / Background / Key Decisions / Non-goals / Implementation Steps / Acceptance Criteria / Verification / Risks.
 - `[DONE:n]` markers in AI responses are tracked via `markCompletedSteps()` to update execution progress state.
-- **Discuss answer-quality strictness** is configurable per project/global via `wow.discussLevel` (`standard` | `strict`, default `standard`), set in `/config:project` or `/config:global`. `standard` omits the extra answer-quality reminder line (direct discussion, fewer confirmation prompts — suitable for strong models or simple projects); `strict` re-enables it (concise questions on missing/ambiguous/high-risk info). Only discuss mode is affected; plan/revise/execute always omit the reminder, and the global system-prompt answer-quality block has been removed.
+- **Aligned discuss flow**: discuss mode asks non-dependent clarifying question batches, follows up based on the human's answers until it is at least 95% confident about the real needs and goals, then summarizes the shared understanding and proposes a direction without turning it into a plan unless the user asks with `??`.
 - **Structured discuss questions**: in discuss mode, when discrete decisions are needed the model emits `:::ask` fenced blocks (with id, single/multiple choice, recommended default marked `[x]`, optional `hint`, optional custom-answer toggle). At turn end the extension parses these blocks and, in TUI mode, opens an overlay panel so the human can pick the default with Enter, choose another, type a custom answer, or skip. The selected answers are filled into the editor as a `? [Discuss answers]` message (not auto-sent) so the human can append notes, switch the prefix (`?`/`??`/none), and send — preserving the `? → ? → ?? → $` workflow continuity. Skipped items are marked `(skipped — 你自行判断决定)` and the model decides itself.
 - Discuss/plan/revise modes allow CodeGraph query tools, `read`, `grep`, `find`, `ls`, `webfetch`, and safe read-only `bash`; they block `edit`, `write`, unsafe bash, and unrelated tools.
 - Prefix-cache safety is a hard requirement: the extension never mutates the system prompt, never switches active tools, registers no dynamic tools, filters stale workflow context messages from provider context, and persists state via custom entries outside LLM context.

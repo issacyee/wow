@@ -19,7 +19,7 @@ const TIPS: WowTipInput[] = [
   },
   {
     id: "wow-tui-ask-reopen",
-    short: "Cancelled a discuss question panel? Press Alt+K in the prompt editor to reopen the most recent one.",
+    short: "Cancelled a discuss question panel? Press Ctrl+Alt+A in the prompt editor to reopen the most recent one.",
     tags: ["tui", "workflow"],
     priority: 40,
   },

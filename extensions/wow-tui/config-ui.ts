@@ -16,7 +16,6 @@ import {
   SettingsManager,
 } from "@earendil-works/pi-coding-agent";
 import { ensureLocalDirectoryGitignore } from "../wow/gitignore.ts";
-import { DISCUSS_LEVEL_DEFAULT, DISCUSS_LEVEL_VALUES } from "../wow/settings.ts";
 import {
   Container,
   type Focusable,
@@ -1368,13 +1367,6 @@ function commonItems(scope: ConfigScope, ctx: ExtensionCommandContext): SettingI
       description: "Default filter mode for /tree.",
       currentValue: cv(["treeFilterMode"], effectiveManager.getTreeFilterMode()),
       values: [...TREE_FILTER_MODES],
-    },
-    {
-      id: "wow.discussLevel",
-      label: "Discuss strictness",
-      description: "Discuss mode answer-quality strictness. standard = no extra confirmation prompting; strict = ask concise questions on missing/ambiguous/high-risk info. Project overrides global.",
-      currentValue: cv(["wow", "discussLevel"], DISCUSS_LEVEL_DEFAULT),
-      values: [...DISCUSS_LEVEL_VALUES],
     },
     {
       id: "compaction.enabled",

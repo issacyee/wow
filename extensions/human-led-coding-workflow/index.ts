@@ -66,7 +66,6 @@ import {
   type AskBlock,
 } from "./ask.ts";
 import { isSafeCommand } from "../wow/safe.ts";
-import { resolveDiscussLevel } from "../wow/settings.ts";
 import { registerHumanLedWorkflowTips } from "./tips.ts";
 import {
   WORKFLOW_EXECUTION_SUMMARY_TYPE,
@@ -476,7 +475,7 @@ export default function humanLedCodingWorkflowExtension(pi: ExtensionAPI): void 
       return {
         message: {
           customType: WORKFLOW_CONTEXT_TYPE,
-          content: buildDiscussPrompt(resolveDiscussLevel()),
+          content: buildDiscussPrompt(),
           display: false,
         },
       };

@@ -5,8 +5,6 @@
  * timestamps, random IDs, git status, counters, or other transient data here.
  */
 
-import { buildAnswerQualityReminder } from "../wow/quality.ts";
-import type { DiscussLevel } from "../wow/settings.ts";
 import { EXECUTE_MARKER, type TodoItem } from "./plan.ts";
 
 export type WorkflowMode = "discuss" | "plan" | "revise" | "execute";
@@ -21,7 +19,8 @@ Structured questions:
 - When you need the human to choose between discrete options, write the visible questions naturally in your answer, then append one hidden \`<!-- wow-ask:v1 ... -->\` metadata block. Only ask when a real decision is needed; prefer fewer questions.
 - Visible question format:
   • Use numbered questions: \`1. <question>\`, \`2. <question>\`.
-  • Use \`A.\`, \`B.\`, \`C.\` option labels under each question.
+  • Use alphabetical option labels under each question: \`A.\`, \`B.\`, \`C.\`, \`D.\`, and so on for however many options are actually useful.
+  • Do not force exactly three options: do not add filler choices to reach three, and do not remove useful choices just to stay at three.
   • Use \`Other.\` for custom answers when custom input is allowed.
   • Do not mark the recommended/default option in visible text.
   • The visible questions and options must describe the same choices as the hidden JSON.
@@ -37,24 +36,24 @@ Structured questions:
   • Use question-level \`other\` for custom input, for example \`{ "enabled": true, "label": "Other", "placeholder": "Type a custom answer" }\`.
 - The user's reply will be natural language, not a structured id mapping. If the user leaves some questions unanswered and asks you to decide, decide yourself and continue; do not ask again.`;
 
-export function buildDiscussPrompt(level: DiscussLevel): string {
-  const reminderLine = level === "strict"
-    ? `\n- ${buildAnswerQualityReminder()}`
-    : "";
-
+export function buildDiscussPrompt(): string {
   return `[HLCW:DISCUSS]
 
 Discuss/analyze with the human as decision maker.
 
 Rules:
 - Current user message is the focus; use prior conversation only as background.
-- Continue an earlier topic only if explicitly referenced; otherwise switch to the new topic.${reminderLine}
+- Continue an earlier topic only if explicitly referenced; otherwise switch to the new topic.
 - Prefer CodeGraph for structural code exploration when an index is available.
-- If the project has no CodeGraph index yet, run \`codegraph init\` first to build one, then use the codegraph_* tools to explore.
+- If the project has no CodeGraph index yet and the CodeGraph CLI is installed, run \`codegraph init\` first to build one, then use the codegraph_* tools to explore. If CodeGraph is unavailable, continue with the other allowed read-only tools.
 - May explore with codegraph_explore, codegraph_node, codegraph_search, codegraph_callers, codegraph_status, read, grep, find, ls, webfetch, and read-only bash.
 - Do not edit/write files.
 - Do not write an implementation plan unless the user asks with ??.
-- Ask concise questions if key information is missing, using the structured format below when discrete options exist.${ASK_FORMAT_SECTION}`;
+- Before moving to the next substantive step, ask the human clarifying questions. You may ask one or multiple questions in the same batch, but questions in the same batch must not depend on each other.
+- Continue asking follow-up questions based on the human's answers until you are at least 95% confident that you understand the human's real needs and goals.
+- During discussion, both sides may ask questions. The purpose is to align understanding of the discussed subject, clarify the requirements and goals, and converge on the right direction.
+- Once you have at least 95% confidence, summarize the shared understanding and give the final proposal/direction. Do not turn it into an implementation plan unless the user asks with ??.
+- Use the structured format below when discrete options exist.${ASK_FORMAT_SECTION}`;
 }
 
 interface PlanPromptOptions {
