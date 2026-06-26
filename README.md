@@ -84,6 +84,33 @@ Language variants:
 
 Optionally pass extra context: `/git-commit:en refactor for performance`.
 
+### Git Branch — `/git-branch`
+
+Generates a local git branch name and start point via a direct LLM call, then asks
+for review before creating and switching to the branch. Pass a task description, or
+omit it to let Wow infer the branch from recent chat context plus `git status` and
+current diff summaries.
+
+Examples:
+
+```txt
+/git-branch fix login redirect after OAuth callback
+/git-branch --from main add project config screen
+/git-branch from develop create a branch to fix history search
+```
+
+Behavior:
+- Chooses semantic prefixes such as `feat/`, `fix/`, `docs/`, `refactor/`, `test/`, or `chore/`
+- Infers and displays the start point (`main`, `develop`, `origin/main`, `HEAD`, etc.)
+- Supports `--from <startPoint>` with input-stage fuzzy branch completion; `--from=...` is treated as ordinary description text
+- Supports natural-language start point hints
+- Lets you edit the branch name before creation
+- Lets you choose or type the start point when `--from` was not provided
+- Supports local branches and existing remote-tracking branches in `--from` completion; it does not run `git fetch`
+- Uses remote-tracking branches only as start points and does not set upstream tracking
+- Warns before proceeding with uncommitted changes, especially when the start point differs from current `HEAD`
+- Adds a timestamp only when the generated local branch name already exists
+
 ### BTW — Isolated Side Q&A
 
 Threaded side-channel Q&A for conceptual follow-ups that should not pollute the main
@@ -328,6 +355,9 @@ wow/
 │   ├── git-commit/          # /git-commit — LLM-generated Conventional Commits
 │   │   ├── index.ts         # Standalone LLM call, parses output, executes commit via temp file
 │   │   └── tips.ts          # Git commit working tips
+│   ├── git-branch/          # /git-branch — LLM-generated branch names and start points
+│   │   ├── index.ts         # Standalone LLM call, interactive review, branch creation
+│   │   └── tips.ts          # Git branch working tips
 │   ├── command-mappings/    # Generic declarative command alias registry
 │   │   ├── index.ts         # Define command aliases (/exit, etc.) declaratively
 │   │   └── tips.ts          # Command mapping working tips

@@ -18,6 +18,7 @@
       "./extensions/locale/index.ts",
       "./extensions/human-led-coding-workflow/index.ts",
       "./extensions/git-commit/index.ts",
+      "./extensions/git-branch/index.ts",
       "./extensions/command-mappings/index.ts",
       "./extensions/wow-tui/index.ts",
       "./extensions/codegraph/index.ts",
