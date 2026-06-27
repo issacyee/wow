@@ -24,6 +24,12 @@ const TIPS: WowTipInput[] = [
     priority: 90,
   },
   {
+    id: "hlcw-auto-execute",
+    short: "Use ?$ when discussion is clear enough to create a plan and execute it immediately.",
+    tags: ["workflow", "execution"],
+    priority: 100,
+  },
+  {
     id: "hlcw-execute-plan",
     short: "Use $ to execute the human-approved active plan.",
     tags: ["workflow", "execution"],
@@ -31,7 +37,7 @@ const TIPS: WowTipInput[] = [
   },
   {
     id: "hlcw-done-markers",
-    short: "During $ execution, [DONE:n] markers keep the todo widget in sync.",
+    short: "During $ or ?$ execution, [DONE:n] markers keep the todo widget in sync.",
     tags: ["workflow", "execution"],
     priority: 80,
   },

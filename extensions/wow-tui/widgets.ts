@@ -62,7 +62,7 @@ export function updateWorkflowWidgets(ctx: ExtensionContext): void {
 
   const snapshot = getWorkflowSnapshot();
   const showExecutionTodos = snapshot.todoItems.length > 0 &&
-    (snapshot.executionActive || snapshot.turnMode === "execute");
+    (snapshot.executionActive || snapshot.turnMode === "execute" || snapshot.turnMode === "autoExecute");
 
   if (snapshot.turnMode === "discuss") {
     ctx.ui.setStatus(WORKFLOW_STATE_TYPE, wowColor(ctx.ui.theme, "workflow.statusDiscuss")("◇ discuss"));
@@ -70,6 +70,8 @@ export function updateWorkflowWidgets(ctx: ExtensionContext): void {
     ctx.ui.setStatus(WORKFLOW_STATE_TYPE, wowColor(ctx.ui.theme, "workflow.statusPlan")("◇ plan"));
   } else if (snapshot.turnMode === "revise") {
     ctx.ui.setStatus(WORKFLOW_STATE_TYPE, wowColor(ctx.ui.theme, "workflow.statusRevise")("◇ revise"));
+  } else if (snapshot.turnMode === "autoExecute" && !showExecutionTodos) {
+    ctx.ui.setStatus(WORKFLOW_STATE_TYPE, wowColor(ctx.ui.theme, "workflow.statusExec")("◇ auto"));
   } else if (showExecutionTodos) {
     const completed = snapshot.todoItems.filter((item) => item.completed).length;
     ctx.ui.setStatus(WORKFLOW_STATE_TYPE, wowColor(ctx.ui.theme, "workflow.statusExec")(`◇ exec ${completed}/${snapshot.todoItems.length}`));

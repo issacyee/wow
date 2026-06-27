@@ -24,7 +24,7 @@ wow/
 │   ├── locale/              # OS-locale language policy via before_agent_start
 │   │   ├── index.ts         # Appends OS-locale hard language directive to the system prompt
 │   │   └── tips.ts          # Locale working tips
-│   ├── human-led-coding-workflow/ # ?/??/?!/$ human-led coding workflow logic
+│   ├── human-led-coding-workflow/ # ?/??/?!/?$/$ human-led coding workflow logic
 │   │   ├── index.ts         # Prefix routing, context injection, tool gates, state persistence
 │   │   ├── prompts.ts       # Byte-stable discuss/plan/revise/execute prompts
 │   │   ├── plan.ts          # Plan detection, extraction, [DONE:n] tracking
@@ -126,20 +126,21 @@ Appends an OS-locale-backed hard `[LANGUAGE]` directive to the system prompt via
 
 ### human-led-coding-workflow
 
-A human-led coding workflow triggered by `?`/`??`/`?!`/`$` input prefixes. Normal prompts keep pi's default behavior; workflow behavior only applies when a prefix is used.
+A human-led coding workflow triggered by `?`/`??`/`?!`/`?$`/`$` input prefixes. Normal prompts keep pi's default behavior; workflow behavior only applies when a prefix is used.
 
 **Modes:**
 1. **Discuss (`?`)** — analyze and discuss, with read-only exploration; do not write a plan unless the user asks with `??`.
 2. **Plan (`??`)** — create a new reviewable plan, replacing any active plan. Empty `??` means the human fully approves the most recent `?` discussion result and wants a plan from it, when such discussion exists.
 3. **Revise (`?!`)** — revise the active plan from explicit human review feedback.
-4. **Execute (`$`)** — execute the active human-approved plan.
+4. **Auto execute (`?$`)** — create a normal active plan and execute it immediately without an extra confirmation. Empty `?$` uses the most recent `?` discussion when available.
+5. **Execute (`$`)** — execute the active human-approved plan.
 
 **Key mechanics:**
-- `EXECUTE_MARKER` (`"Ready to execute?"`) is the bridge between planning/revision and execution. Plans are captured from reverse-scanned assistant messages at `agent_end`.
+- `EXECUTE_MARKER` (`"Ready to execute?"`) is the bridge between planning/revision and execution. Plans are captured from reverse-scanned assistant messages at `agent_end`; `?$` also captures the generated plan as soon as it streams so todo progress can update in the same turn.
 - Plans use Goals / Background / Key Decisions / Non-goals / Implementation Steps / Acceptance Criteria / Verification / Risks.
 - `[DONE:n]` markers in AI responses are tracked via `markCompletedSteps()` to update execution progress state.
 - **Aligned discuss flow**: discuss mode asks non-dependent clarifying question batches, follows up based on the human's answers until it is at least 95% confident about the real needs and goals, then summarizes the shared understanding and proposes a direction without turning it into a plan unless the user asks with `??`.
-- **Structured discuss questions**: in discuss mode, when discrete decisions are needed the model emits `:::ask` fenced blocks (with id, single/multiple choice, recommended default marked `[x]`, optional `hint`, optional custom-answer toggle). At turn end the extension parses these blocks and, in TUI mode, opens an overlay panel so the human can pick the default with Enter, choose another, type a custom answer, or skip. The selected answers are filled into the editor as a `? [Discuss answers]` message (not auto-sent) so the human can append notes, switch the prefix (`?`/`??`/none), and send — preserving the `? → ? → ?? → $` workflow continuity. Skipped items are marked `(skipped — 你自行判断决定)` and the model decides itself.
+- **Structured discuss questions**: in discuss mode, when discrete decisions are needed the model emits `:::ask` fenced blocks (with id, single/multiple choice, recommended default marked `[x]`, optional `hint`, optional custom-answer toggle). At turn end the extension parses these blocks and, in TUI mode, opens an overlay panel so the human can pick the default with Enter, choose another, type a custom answer, or skip. The selected answers are filled into the editor as a `? [Discuss answers]` message (not auto-sent) so the human can append notes, switch the prefix (`?`/`??`/`?$`/none), and send — preserving the `? → ? → ?? → $` or `? → ?$` workflow continuity. Skipped items are marked `(skipped — 你自行判断决定)` and the model decides itself.
 - Discuss/plan/revise modes allow CodeGraph query tools, `read`, `grep`, `find`, `ls`, `webfetch`, and safe read-only `bash`; they block `edit`, `write`, unsafe bash, and unrelated tools.
 - Prefix-cache safety is a hard requirement: the extension never mutates the system prompt, never switches active tools, registers no dynamic tools, filters stale workflow context messages from provider context, and persists state via custom entries outside LLM context.
 - State is managed by `state.ts` and restored from `human-led-coding-workflow` custom entries on `session_start`.
@@ -207,6 +208,8 @@ Future extensions must treat prefix stability as a compatibility contract: dynam
 | `?? <text>` | Write a new reviewable plan                                    |
 | `??`        | Write a plan from the most recent `?` discussion, if available |
 | `?! <text>` | Revise the active plan from explicit feedback                  |
+| `?$ <text>` | Write a plan and execute it immediately                        |
+| `?$`        | Plan and execute from the most recent `?` discussion, if available |
 | `$`         | Execute the active plan                                        |
 | `$ <text>`  | Execute the active plan with additional constraints            |
 

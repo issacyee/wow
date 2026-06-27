@@ -1,5 +1,5 @@
 /**
- * Human-Led Coding Workflow — ? / ?? / ?! / $ workflow extension.
+ * Human-Led Coding Workflow — ? / ?? / ?! / ?$ / $ workflow extension.
  *
  * The human stays the decision maker. The AI can discuss, write plans, revise
  * plans, and execute only after explicit approval.
@@ -20,6 +20,7 @@ import type { AssistantMessage, TextContent } from "@earendil-works/pi-ai";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 
 import {
+  buildAutoExecutePrompt,
   buildDiscussPrompt,
   buildExecutePrompt,
   buildPlanPrompt,
@@ -53,6 +54,7 @@ import {
   resetWorkflowState,
   restoreWorkflowState,
   setExecutionActive,
+  setPlanFullText,
   setTurnMode,
   WORKFLOW_STATE_TYPE,
   type TurnMode,
@@ -87,9 +89,13 @@ const READ_ONLY_ALLOWED_TOOLS = new Set([
   "codegraph_status",
 ]);
 
+type ExecutionMode = Extract<WorkflowMode, "execute" | "autoExecute">;
+
 let hasExecutionAdjustment = false;
 let planFromPreviousDiscussion = false;
 let executionProgressDirty = false;
+let compactionRecoveryMode: ExecutionMode | null = null;
+let lastExecutionModeBeforeCompaction: ExecutionMode | null = null;
 
 /** Most recent assistant ask blocks, for Alt+K reopen. */
 let lastAskBlocks: AskBlock[] = [];
@@ -258,7 +264,7 @@ function truncatePlanForRestore(text: string): string | undefined {
 }
 
 function planVisibleInCurrentBranch(ctx: ExtensionContext): boolean {
-  const branch = ctx.sessionManager.getBranch() as any[];
+  const branch = getBranchEntries(ctx);
   let scanStart = 0;
 
   for (let i = 0; i < branch.length; i++) {
@@ -288,6 +294,14 @@ function restoredPlanContext(ctx: ExtensionContext): string | undefined {
   return truncatePlanForRestore(planFullText);
 }
 
+function getBranchEntries(ctx: ExtensionContext): any[] {
+  try {
+    return ctx.sessionManager.getBranch() as any[];
+  } catch {
+    return [];
+  }
+}
+
 function findLatestPlanInMessages(messages: AgentMessage[]): string | undefined {
   for (let i = messages.length - 1; i >= 0; i--) {
     const message = messages[i];
@@ -300,11 +314,75 @@ function findLatestPlanInMessages(messages: AgentMessage[]): string | undefined 
   return undefined;
 }
 
+function findLatestPlanInEntries(entries: any[]): { index: number; planText: string } | undefined {
+  for (let i = entries.length - 1; i >= 0; i--) {
+    const entry = entries[i];
+    let text = "";
+
+    if (entry?.type === "message" && isAssistantMessage(entry.message)) {
+      text = getTextContent(entry.message);
+    } else if (typeof entry?.summary === "string") {
+      text = entry.summary;
+    } else if (entry?.type === "custom_message") {
+      text = contextText(entry);
+    }
+
+    if (!text || (!hasExecuteMarker(text) && !hasPlanStructure(text))) continue;
+
+    const planText = extractPlanText(text);
+    if (hasExecuteMarker(planText) || hasPlanStructure(planText)) return { index: i, planText };
+  }
+  return undefined;
+}
+
+function captureAutoPlanFromText(pi: ExtensionAPI, text: string): boolean {
+  if (hasActivePlan() || !hasExecuteMarker(text) || !hasPlanStructure(text)) return false;
+
+  const planText = extractPlanText(text);
+  if (!hasExecuteMarker(planText) || !hasPlanStructure(planText)) return false;
+
+  replacePlan(planText, extractPlanItems(planText), false);
+  setExecutionActive(true);
+  persistState(pi);
+  return true;
+}
+
+function captureAutoPlanFromMessages(pi: ExtensionAPI, messages: AgentMessage[]): boolean {
+  if (hasActivePlan()) return false;
+
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const message = messages[i];
+    if (isAssistantMessage(message) && captureAutoPlanFromText(pi, getTextContent(message))) return true;
+  }
+  return false;
+}
+
+function captureAutoPlanFromSession(pi: ExtensionAPI, ctx: ExtensionContext): boolean {
+  if (hasActivePlan()) return false;
+
+  const branch = getBranchEntries(ctx);
+  for (let i = branch.length - 1; i >= 0; i--) {
+    const entry = branch[i];
+    if (entry?.type === "message" && isAssistantMessage(entry.message) && captureAutoPlanFromText(pi, getTextContent(entry.message))) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function latestWorkflowStateEntry(ctx: ExtensionContext): { index: number; data?: Partial<WorkflowState> } | undefined {
+  const branch = getBranchEntries(ctx);
+  for (let i = branch.length - 1; i >= 0; i--) {
+    const entry = branch[i];
+    if (entry?.type === "custom" && entry.customType === WORKFLOW_STATE_TYPE) {
+      return { index: i, data: entry.data as Partial<WorkflowState> | undefined };
+    }
+  }
+  return undefined;
+}
+
 function latestWorkflowState(ctx: ExtensionContext): Partial<WorkflowState> | undefined {
-  const entry = (ctx.sessionManager.getBranch() as any[])
-    .filter((candidate: any) => candidate?.type === "custom" && candidate.customType === WORKFLOW_STATE_TYPE)
-    .pop() as { data?: Partial<WorkflowState> } | undefined;
-  return entry?.data;
+  return latestWorkflowStateEntry(ctx)?.data;
 }
 
 function canRecoverInactivePlan(ctx: ExtensionContext): boolean {
@@ -312,22 +390,69 @@ function canRecoverInactivePlan(ctx: ExtensionContext): boolean {
   return state === undefined || state.activePlan === true;
 }
 
-function recoverPlanFromSession(ctx: ExtensionContext): boolean {
-  const entries = ctx.sessionManager.getBranch();
+function restoreLatestWorkflowStateIfMissing(ctx: ExtensionContext): boolean {
+  const data = latestWorkflowState(ctx);
+  if (!data) return false;
 
-  for (let i = entries.length - 1; i >= 0; i--) {
-    const entry = entries[i] as any;
-    if (entry.type !== "message" || !("message" in entry) || !isAssistantMessage(entry.message)) continue;
+  const current = currentWorkflowState();
+  const restoredItems = Array.isArray(data.todoItems) ? data.todoItems : [];
+  const hasRestorableExecution = data.activePlan === true || data.executionActive === true;
+  const shouldRestore =
+    (!current.activePlan && data.activePlan === true) ||
+    (!current.executionActive && data.executionActive === true) ||
+    (current.todoItems.length === 0 && restoredItems.length > 0 && hasRestorableExecution) ||
+    (!current.planFullText && typeof data.planFullText === "string" && data.planFullText.length > 0 && hasRestorableExecution);
 
-    const text = getTextContent(entry.message);
-    if (!hasExecuteMarker(text)) continue;
+  if (!shouldRestore) return false;
+  restoreWorkflowState(data);
+  return true;
+}
 
-    const planText = extractPlanText(text);
-    replacePlan(planText, extractPlanItems(planText), false);
-    return true;
+function recoverPlanFromSession(ctx: ExtensionContext, preserveTodos = false): boolean {
+  const found = findLatestPlanInEntries(getBranchEntries(ctx));
+  if (!found) return false;
+
+  if (preserveTodos && hasActivePlan() && getTodoItems().length > 0) {
+    setPlanFullText(found.planText);
+  } else {
+    replacePlan(found.planText, extractPlanItems(found.planText), false);
+  }
+  return true;
+}
+
+function markCompletedTodosFromSession(ctx: ExtensionContext): number {
+  const entries = getBranchEntries(ctx);
+  const latestPlan = findLatestPlanInEntries(entries);
+  const latestState = latestWorkflowStateEntry(ctx);
+  const scanStart = Math.max(latestPlan?.index ?? 0, latestState?.index ?? 0);
+  const messages = entries
+    .slice(scanStart)
+    .filter((entry: any) => entry?.type === "message")
+    .map((entry: any) => entry.message as AgentMessage);
+
+  return markCompletedTodosFromMessages(messages);
+}
+
+function recoverExecutionState(pi: ExtensionAPI, ctx: ExtensionContext, mode: ExecutionMode): boolean {
+  let changed = restoreLatestWorkflowStateIfMissing(ctx);
+
+  if (mode === "autoExecute") {
+    changed = captureAutoPlanFromSession(pi, ctx) || changed;
   }
 
-  return false;
+  if (!hasActivePlan() && getTodoItems().length === 0) {
+    changed = recoverPlanFromSession(ctx) || changed;
+  } else if (hasActivePlan() && !getPlanFullText()) {
+    changed = recoverPlanFromSession(ctx, true) || changed;
+  }
+
+  if (hasActivePlan() && !currentWorkflowState().executionActive) {
+    setExecutionActive(true);
+    changed = true;
+  }
+
+  const completed = markCompletedTodosFromSession(ctx);
+  return changed || completed > 0;
 }
 
 function notify(ctx: ExtensionContext, text: string, level: "info" | "warning" | "error" = "info"): void {
@@ -350,6 +475,9 @@ function parseWorkflowInput(text: string): { mode: WorkflowMode; prompt: string 
   if (text.startsWith("??") || text.startsWith("?？") || text.startsWith("？？") || text.startsWith("？?")) {
     return { mode: "plan", prompt: text.slice(2).trim() };
   }
+  if (text.startsWith("?$") || text.startsWith("?￥") || text.startsWith("？$") || text.startsWith("？￥")) {
+    return { mode: "autoExecute", prompt: text.slice(2).trim() };
+  }
   if (text.startsWith("?") || text.startsWith("？")) return { mode: "discuss", prompt: text.slice(1).trim() };
   if (text.startsWith("$") || text.startsWith("￥")) return { mode: "execute", prompt: text.slice(1).trim() };
   return null;
@@ -357,6 +485,35 @@ function parseWorkflowInput(text: string): { mode: WorkflowMode; prompt: string 
 
 function isReadOnlyMode(mode: TurnMode): boolean {
   return mode === "discuss" || mode === "plan" || mode === "revise";
+}
+
+function isExecutionMode(mode: TurnMode): mode is ExecutionMode {
+  return mode === "execute" || mode === "autoExecute";
+}
+
+function toExecutionMode(mode: TurnMode): ExecutionMode | null {
+  return isExecutionMode(mode) ? mode : null;
+}
+
+function progressExecutionMode(): ExecutionMode | null {
+  const turnMode = toExecutionMode(getTurnMode());
+  if (turnMode) return turnMode;
+  if (compactionRecoveryMode === "autoExecute") return "autoExecute";
+  return compactionRecoveryMode && hasRecoverableExecutionState() ? compactionRecoveryMode : null;
+}
+
+function hasRecoverableExecutionState(): boolean {
+  const state = currentWorkflowState();
+  return state.executionActive || state.activePlan;
+}
+
+function isRecoveryMode(mode: ExecutionMode): boolean {
+  return compactionRecoveryMode === mode && !isExecutionMode(getTurnMode());
+}
+
+function clearExecutionRecovery(): void {
+  compactionRecoveryMode = null;
+  lastExecutionModeBeforeCompaction = null;
 }
 
 function isWorkflowContextMessage(message: any): boolean {
@@ -418,32 +575,39 @@ function hasRecentDiscussion(ctx: ExtensionContext): boolean {
 export default function humanLedCodingWorkflowExtension(pi: ExtensionAPI): void {
   const unregisterTips = registerHumanLedWorkflowTips();
 
-  // input — detect ? / ?? / ?! / $ prefixes. Normal input stays untouched.
+  // input — detect ? / ?? / ?! / ?$ / $ prefixes. Normal input stays untouched.
   pi.on("input", async (event, ctx) => {
     const parsed = parseWorkflowInput(event.text);
     if (!parsed) {
       if (typeof ctx.isIdle !== "function" || ctx.isIdle()) {
         if (clearCompletedExecutionDisplay()) persistState(pi);
         clearTurnMode();
+        clearExecutionRecovery();
       }
       return { action: "continue" };
     }
 
     if (parsed.mode !== "execute" && !parsed.prompt) {
-      if (parsed.mode !== "plan" || !hasRecentDiscussion(ctx)) {
+      const canUseRecentDiscussion = (parsed.mode === "plan" || parsed.mode === "autoExecute") && hasRecentDiscussion(ctx);
+      if (!canUseRecentDiscussion) {
         clearTurnMode();
-        return missingArgument(ctx, parsed.mode === "revise" ? "?!" : parsed.mode === "plan" ? "??" : "?");
+        return missingArgument(ctx, parsed.mode === "revise" ? "?!" : parsed.mode === "plan" ? "??" : parsed.mode === "autoExecute" ? "?$" : "?");
       }
     }
 
-    if (parsed.mode === "plan") {
+    if (parsed.mode === "plan" || parsed.mode === "autoExecute") {
       clearPlan(false);
       persistState(pi);
     } else if (clearCompletedExecutionDisplay()) {
       persistState(pi);
     }
 
-    planFromPreviousDiscussion = parsed.mode === "plan" && parsed.prompt.length === 0;
+    planFromPreviousDiscussion = (parsed.mode === "plan" || parsed.mode === "autoExecute") && parsed.prompt.length === 0;
+    if (isExecutionMode(parsed.mode)) {
+      lastExecutionModeBeforeCompaction = parsed.mode;
+    } else {
+      clearExecutionRecovery();
+    }
 
     if (parsed.mode === "revise" && !hasActivePlan() && (!canRecoverInactivePlan(ctx) || !recoverPlanFromSession(ctx))) {
       notify(ctx, "No active plan to revise. Use ?? to create a plan first.", "info");
@@ -486,6 +650,16 @@ export default function humanLedCodingWorkflowExtension(pi: ExtensionAPI): void 
         message: {
           customType: WORKFLOW_CONTEXT_TYPE,
           content: buildPlanPrompt({ fromPreviousDiscussion: planFromPreviousDiscussion }),
+          display: false,
+        },
+      };
+    }
+
+    if (turnMode === "autoExecute") {
+      return {
+        message: {
+          customType: WORKFLOW_CONTEXT_TYPE,
+          content: buildAutoExecutePrompt({ fromPreviousDiscussion: planFromPreviousDiscussion }),
           display: false,
         },
       };
@@ -547,8 +721,33 @@ export default function humanLedCodingWorkflowExtension(pi: ExtensionAPI): void 
   });
 
   pi.on("session_before_compact", async (event) => {
+    const turnExecutionMode = toExecutionMode(getTurnMode());
+    lastExecutionModeBeforeCompaction = turnExecutionMode ?? compactionRecoveryMode ?? lastExecutionModeBeforeCompaction;
+    if (lastExecutionModeBeforeCompaction && (hasRecoverableExecutionState() || lastExecutionModeBeforeCompaction === "autoExecute")) {
+      if (hasRecoverableExecutionState()) {
+        continueExecution();
+        persistState(pi);
+      }
+    } else {
+      lastExecutionModeBeforeCompaction = null;
+    }
+
     event.preparation.messagesToSummarize = filterExecutionSummaryMessages(event.preparation.messagesToSummarize);
     event.preparation.turnPrefixMessages = filterExecutionSummaryMessages(event.preparation.turnPrefixMessages);
+  });
+
+  pi.on("session_compact", async (event, ctx) => {
+    if (!lastExecutionModeBeforeCompaction || (!event.willRetry && event.reason !== "threshold")) {
+      lastExecutionModeBeforeCompaction = null;
+      return;
+    }
+
+    compactionRecoveryMode = lastExecutionModeBeforeCompaction;
+    lastExecutionModeBeforeCompaction = null;
+
+    if (recoverExecutionState(pi, ctx, compactionRecoveryMode)) {
+      persistState(pi);
+    }
   });
 
   pi.on("session_before_tree", async (event) => {
@@ -557,8 +756,9 @@ export default function humanLedCodingWorkflowExtension(pi: ExtensionAPI): void 
   });
 
   // tool_call — read-only gates for discuss/plan/revise. Active tool schemas remain stable.
-  pi.on("tool_call", async (event) => {
+  pi.on("tool_call", async (event, ctx) => {
     const turnMode = getTurnMode();
+    if (turnMode === "autoExecute") captureAutoPlanFromSession(pi, ctx);
     if (!isReadOnlyMode(turnMode)) return;
 
     if (event.toolName === "edit" || event.toolName === "write") {
@@ -587,21 +787,31 @@ export default function humanLedCodingWorkflowExtension(pi: ExtensionAPI): void 
   });
 
   // message_update — update todo progress as soon as visible [DONE:n] text streams in.
-  pi.on("message_update", async (event) => {
-    if (getTurnMode() !== "execute" || !isAssistantMessage(event.message)) return;
+  pi.on("message_update", async (event, ctx) => {
+    const executionMode = progressExecutionMode();
+    if (!executionMode || !isAssistantMessage(event.message)) return;
 
-    const changed = markCompletedTodosFromText(getTextContent(event.message));
-    if (changed > 0) {
+    const text = getTextContent(event.message);
+    if (executionMode === "autoExecute") captureAutoPlanFromText(pi, text);
+    const recovered = isRecoveryMode(executionMode) && recoverExecutionState(pi, ctx, executionMode);
+
+    const changed = markCompletedTodosFromText(text);
+    if (changed > 0 || recovered) {
       executionProgressDirty = true;
     }
   });
 
   // turn_end — track [DONE:n] progress during execution and persist streaming updates.
-  pi.on("turn_end", async (event) => {
-    if (getTurnMode() !== "execute" || !isAssistantMessage(event.message)) return;
+  pi.on("turn_end", async (event, ctx) => {
+    const executionMode = progressExecutionMode();
+    if (!executionMode || !isAssistantMessage(event.message)) return;
 
-    const changed = markCompletedTodosFromText(getTextContent(event.message));
-    if (changed > 0 || executionProgressDirty) {
+    const text = getTextContent(event.message);
+    if (executionMode === "autoExecute") captureAutoPlanFromText(pi, text);
+    const recovered = isRecoveryMode(executionMode) && recoverExecutionState(pi, ctx, executionMode);
+
+    const changed = markCompletedTodosFromText(text);
+    if (changed > 0 || recovered || executionProgressDirty) {
       persistState(pi);
       executionProgressDirty = false;
     }
@@ -610,6 +820,7 @@ export default function humanLedCodingWorkflowExtension(pi: ExtensionAPI): void 
   // agent_end — capture plans and clear transient mode state.
   pi.on("agent_end", async (event, ctx) => {
     const turnMode = getTurnMode();
+    const executionMode = progressExecutionMode();
 
     if (turnMode === "discuss") {
       const latestText = getLatestAssistantText(event.messages);
@@ -632,15 +843,22 @@ export default function humanLedCodingWorkflowExtension(pi: ExtensionAPI): void 
       persistState(pi);
     }
 
-    if (turnMode === "execute") {
+    if (executionMode) {
+      lastExecutionModeBeforeCompaction = executionMode;
+      if (executionMode === "autoExecute") captureAutoPlanFromMessages(pi, event.messages);
+      if (isRecoveryMode(executionMode)) recoverExecutionState(pi, ctx, executionMode);
       markCompletedTodosFromMessages(event.messages);
       const todoItems = getTodoItems();
+      const hasExecutionPlan = hasActivePlan() || todoItems.length > 0;
       const allExtractedStepsCompleted = todoItems.length === 0 || todoItems.every((item) => item.completed);
-      if (allExtractedStepsCompleted || looksLikeCompletedExecutionSummary(getLatestAssistantText(event.messages))) {
+      if (hasExecutionPlan && (allExtractedStepsCompleted || looksLikeCompletedExecutionSummary(getLatestAssistantText(event.messages)))) {
         finishExecution();
+        clearExecutionRecovery();
         queueExecutionSummaryMessage(pi, ctx, getTodoItems());
-      } else {
+      } else if (hasExecutionPlan) {
         continueExecution();
+      } else {
+        clearExecutionRecovery();
       }
       persistState(pi);
       executionProgressDirty = false;
@@ -657,12 +875,13 @@ export default function humanLedCodingWorkflowExtension(pi: ExtensionAPI): void 
     restoreWorkflowState(latestWorkflowState(ctx));
 
     if (hasActivePlan() && !getPlanFullText()) {
-      recoverPlanFromSession(ctx);
+      recoverPlanFromSession(ctx, true);
     }
   });
 
   pi.on("session_shutdown", async () => {
     clearTurnMode();
+    clearExecutionRecovery();
     hasExecutionAdjustment = false;
     planFromPreviousDiscussion = false;
     executionProgressDirty = false;

@@ -7,7 +7,7 @@
 
 import { EXECUTE_MARKER, type TodoItem } from "./plan.ts";
 
-export type WorkflowMode = "discuss" | "plan" | "revise" | "execute";
+export type WorkflowMode = "discuss" | "plan" | "revise" | "execute" | "autoExecute";
 
 export const WORKFLOW_CONTEXT_TYPE = "human-led-coding-workflow-context";
 
@@ -106,6 +106,73 @@ Output:
 
 End with:
 ${EXECUTE_MARKER}`;
+}
+
+export function buildAutoExecutePrompt(options: PlanPromptOptions = {}): string {
+  const sourceInstruction = options.fromPreviousDiscussion
+    ? "\n- Empty ?$ means the user approves the latest discussion; write the plan from it, then execute it immediately."
+    : "";
+
+  return `[HUMAN-LED CODING WORKFLOW: AUTO PLAN AND EXECUTE]
+
+Role: write a concrete plan, then execute it immediately in the same workflow turn.
+
+Rules:${sourceInstruction}
+- Full tool access is allowed in this mode.
+- Prefer CodeGraph for structural code exploration when an index is available.
+- Explore first when needed, then write exactly one concrete plan.
+- Ask concise questions and do not execute only if critical information is missing.
+- Do not commit changes. The human commits manually.
+- First output the complete plan using the required structure below, ending the plan with the exact marker line.
+- After the marker, do not ask for confirmation and do not wait; immediately start executing the plan.
+- After completing an implementation step, immediately output a visible progress line containing [DONE:n] where n is the step number, then continue with later steps.
+- Do not wait until the final summary to report completed steps; emit each [DONE:n] as soon as that step is complete.
+- When the whole plan is complete, all extracted step numbers must be marked with [DONE:n].
+- If the plan becomes invalid while executing, stop and explain instead of improvising a major redesign.
+
+Plan output:
+
+## Plan: {short title}
+
+### Goals
+...
+
+### Background
+...
+
+### Key Decisions
+...
+
+### Non-goals
+...
+
+### Implementation Steps
+1. **Action** — concrete executable step.
+
+### Acceptance Criteria
+...
+
+### Verification
+...
+
+### Risks
+...
+
+End the plan with:
+${EXECUTE_MARKER}
+
+Final response format after execution:
+
+## Execution Summary
+
+### Summary
+{brief summary of what changed}
+
+### Modified Files
+- \`path/to/file\` — {brief change description}
+
+### Follow-up Suggestions
+{optional next steps, caveats, or cleanup ideas}`;
 }
 
 export function buildRevisePrompt(restoredPlan?: string): string {

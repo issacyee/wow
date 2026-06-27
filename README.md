@@ -42,7 +42,7 @@ package independent from this repository's frequent personal changes.
 
 ## Features
 
-### Human-Led Coding Workflow — `?` / `??` / `?!` / `$`
+### Human-Led Coding Workflow — `?` / `??` / `?!` / `?$` / `$`
 
 A human-led coding workflow where the user decides when to discuss, plan, revise,
 and execute. Normal prompts keep pi's default behavior; the workflow only activates
@@ -54,10 +54,12 @@ when a prefix is used.
 | `?? <text>` | Write a new reviewable plan, replacing any active plan         |
 | `??`        | Write a plan from the most recent `?` discussion, if available |
 | `?! <text>` | Revise the current active plan from explicit review feedback   |
+| `?$ <text>` | Write a plan and execute it immediately                        |
+| `?$`        | Plan and execute from the most recent `?` discussion, if available |
 | `$`         | Execute the current active plan                                |
 | `$ <text>`  | Execute the current active plan with extra constraints         |
 
-- **Human-led control**: ordinary input remains free-form; plan feedback requires `?!`; execution requires `$`
+- **Human-led control**: ordinary input remains free-form; plan feedback requires `?!`; execution uses `$`, or `?$` when the discussion is clear enough to plan and execute immediately
 - **Read-only discussion/planning/revision**: these modes allow `codegraph_*`, `read`, `grep`, `find`, `ls`, safe read-only `bash`, and `webfetch`, while blocking `edit`, `write`, and unsafe commands
 - **Aligned discussion flow**: discuss mode asks non-dependent clarifying question batches, follows up until it is highly confident about the user's real needs and goals, then summarizes the shared understanding and proposes a direction without turning it into a plan unless `??` is used.
 - **Reviewable plan structure**: plans include Goals, Background, Key Decisions, Non-goals, Implementation Steps, Acceptance Criteria, Verification, and Risks, ending with `Ready to execute?`
@@ -345,7 +347,7 @@ wow/
 │   ├── locale/              # OS-locale language policy
 │   │   ├── index.ts         # Appends OS-locale hard language directive to system prompt
 │   │   └── tips.ts          # Locale working tips
-│   ├── human-led-coding-workflow/ # ?/??/?!/$ human-led workflow logic
+│   ├── human-led-coding-workflow/ # ?/??/?!/?$/$ human-led workflow logic
 │   │   ├── index.ts         # Prefix routing, context injection, tool gates, state persistence
 │   │   ├── prompts.ts       # Byte-stable workflow prompts
 │   │   ├── plan.ts          # Plan detection, extraction, [DONE:n] tracking

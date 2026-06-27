@@ -25,6 +25,9 @@ function workflowBorderColor(text: string, theme: any): ColorFn | null {
   if (text.startsWith("??") || text.startsWith("?？") || text.startsWith("？？") || text.startsWith("？?")) {
     return wowColor(theme, "workflow.planBorder");
   }
+  if (text.startsWith("?$") || text.startsWith("?￥") || text.startsWith("？$") || text.startsWith("？￥")) {
+    return wowColor(theme, "workflow.executeBorder");
+  }
   if (text.startsWith("?") || text.startsWith("？")) {
     return wowColor(theme, "workflow.discussBorder");
   }
@@ -100,6 +103,10 @@ export class WowCompositeEditor extends CustomEditor {
         }
         if (data === "\uFF01") {
           super.handleInput("!");
+          return;
+        }
+        if (data === "\uFFE5") {
+          super.handleInput("$");
           return;
         }
       }

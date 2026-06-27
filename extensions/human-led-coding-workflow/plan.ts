@@ -30,7 +30,12 @@ export function isCompletePlan(text: string): boolean {
 
 export function extractPlanText(text: string): string {
   const match = text.match(/(##\s+[^:：\n]+[:：][\s\S]*)/m);
-  return (match ? match[1] : text).trim();
+  const planText = match ? match[1] : text;
+  const marker = planText.match(MARKER_RE);
+  if (marker?.index !== undefined) {
+    return planText.slice(0, marker.index + marker[0].length).trim();
+  }
+  return planText.trim();
 }
 
 function sectionAfterImplementationSteps(text: string): string | undefined {
