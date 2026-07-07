@@ -212,6 +212,47 @@ function normalizeBatch(value: unknown): AskBatch {
   };
 }
 
+function normalizeFingerprintText(value: string | undefined): string {
+  return (value ?? "").trim().replace(/\s+/g, " ");
+}
+
+function defaultFingerprint(question: AskQuestion): string[] {
+  if (question.default === undefined) return [];
+
+  const defaultIds = new Set(Array.isArray(question.default) ? question.default : [question.default]);
+  return question.options
+    .filter((option) => defaultIds.has(option.id))
+    .map((option) => normalizeFingerprintText(option.label));
+}
+
+function otherFingerprint(question: AskQuestion): { enabled: boolean; label: string; placeholder: string } {
+  const enabled = question.type === "text" || question.other?.enabled !== false;
+  return {
+    enabled,
+    label: enabled ? normalizeFingerprintText(question.other?.label ?? "Other") : "",
+    placeholder: enabled ? normalizeFingerprintText(question.other?.placeholder) : "",
+  };
+}
+
+function askQuestionFingerprintPayload(question: AskQuestion): Record<string, unknown> {
+  return {
+    type: question.type,
+    question: normalizeFingerprintText(question.question),
+    hint: normalizeFingerprintText(question.hint),
+    options: question.options.map((option) => normalizeFingerprintText(option.label)),
+    default: defaultFingerprint(question),
+    other: otherFingerprint(question),
+  };
+}
+
+function askQuestionFingerprint(question: AskQuestion): string {
+  return JSON.stringify(askQuestionFingerprintPayload(question));
+}
+
+export function fingerprintAskBlocks(questions: AskQuestion[]): string {
+  return JSON.stringify(questions.map((question) => askQuestionFingerprintPayload(question)));
+}
+
 export function hasAskMetadata(text: string): boolean {
   return /<!--\s*wow-ask:v1\b/.test(text);
 }
@@ -246,7 +287,17 @@ export function collectAskBatches(text: string): AskBatch[] {
 
 /** Collect all valid ask questions from `<!-- wow-ask:v1 ... -->` metadata. */
 export function collectAskBlocks(text: string): AskBlock[] {
-  return collectAskBatches(text).flatMap((batch) => batch.questions);
+  const seen = new Set<string>();
+  const blocks: AskBlock[] = [];
+
+  for (const question of collectAskBatches(text).flatMap((batch) => batch.questions)) {
+    const fingerprint = askQuestionFingerprint(question);
+    if (seen.has(fingerprint)) continue;
+    seen.add(fingerprint);
+    blocks.push(question);
+  }
+
+  return blocks;
 }
 
 // ── Formatting ──

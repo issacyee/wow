@@ -62,6 +62,7 @@ import {
 } from "./state.ts";
 import {
   collectAskBlocks,
+  fingerprintAskBlocks,
   formatAskAnswers,
   getAskPanelTrigger,
   hasAskMetadata,
@@ -99,6 +100,7 @@ let lastExecutionModeBeforeCompaction: ExecutionMode | null = null;
 
 /** Most recent assistant ask blocks, for Alt+K reopen. */
 let lastAskBlocks: AskBlock[] = [];
+const queuedAskFingerprints = new Set<string>();
 
 function findLastAskBlocksInBranch(ctx: ExtensionContext): AskBlock[] {
   let branch: any[];
@@ -172,17 +174,29 @@ function queueExecutionSummaryMessage(
  * ask panel (once the agent is idle) and fill the chosen answers into the editor
  * so the human can append notes and send. Cancelled panels leave the editor as-is.
  */
-function queueDiscussAskPanel(ctx: ExtensionContext, blocks: AskBlock[], attempt = 0): void {
+function queueDiscussAskPanel(ctx: ExtensionContext, blocks: AskBlock[], attempt = 0, fingerprint = fingerprintAskBlocks(blocks)): void {
   if (blocks.length === 0) return;
+
+  if (attempt === 0) {
+    if (queuedAskFingerprints.has(fingerprint)) return;
+    queuedAskFingerprints.add(fingerprint);
+  }
 
   setTimeout(() => {
     if (typeof ctx.isIdle === "function" && !ctx.isIdle()) {
-      if (attempt < 40) queueDiscussAskPanel(ctx, blocks, attempt + 1);
+      if (attempt < 40) {
+        queueDiscussAskPanel(ctx, blocks, attempt + 1, fingerprint);
+      } else {
+        queuedAskFingerprints.delete(fingerprint);
+      }
       return;
     }
 
     const trigger = getAskPanelTrigger();
-    if (!trigger) return; // visual layer not loaded / no UI
+    if (!trigger) {
+      queuedAskFingerprints.delete(fingerprint);
+      return; // visual layer not loaded / no UI
+    }
 
     trigger(ctx, blocks)
       .then((answers) => {
@@ -195,6 +209,9 @@ function queueDiscussAskPanel(ctx: ExtensionContext, blocks: AskBlock[], attempt
       })
       .catch(() => {
         // Panel errors must never break the session.
+      })
+      .finally(() => {
+        queuedAskFingerprints.delete(fingerprint);
       });
   }, attempt === 0 ? 0 : 50);
 }
@@ -885,6 +902,7 @@ export default function humanLedCodingWorkflowExtension(pi: ExtensionAPI): void 
     hasExecutionAdjustment = false;
     planFromPreviousDiscussion = false;
     executionProgressDirty = false;
+    queuedAskFingerprints.clear();
     unregisterTips();
   });
 }
