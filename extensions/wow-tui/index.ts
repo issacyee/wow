@@ -11,6 +11,12 @@ import { setAskPanelTrigger } from "../human-led-coding-workflow/ask.ts";
 import { subscribeWorkflowState, WORKFLOW_STATE_TYPE } from "../human-led-coding-workflow/state.ts";
 import { installAskMetadataAssistantRendering } from "./assistant.ts";
 import { installBtwAskTimer, registerBtwRendering } from "./btw.ts";
+import { subscribeCodeIntelligence } from "../code-intelligence/state.ts";
+import {
+  CODE_INTELLIGENCE_STATUS_KEY,
+  registerCodeIntelligenceRendering,
+  updateCodeIntelligenceStatus,
+} from "./code-intelligence.ts";
 import { WOW_TUI_CONFIG } from "./config.ts";
 import { registerConfigUI } from "./config-ui.ts";
 import { createEditorComponent } from "./editor.ts";
@@ -60,11 +66,16 @@ export default function wowTuiExtension(pi: ExtensionAPI): void {
     registerWorkflowSummaryRendering(pi);
   }
 
+  if (WOW_TUI_CONFIG.codeIntelligence) {
+    registerCodeIntelligenceRendering(pi);
+  }
+
   const workingTimerController = WOW_TUI_CONFIG.workingTimers
     ? createWorkingTimerController(pi)
     : undefined;
 
   let unsubscribeWorkflow: (() => void) | undefined;
+  let unsubscribeCodeIntelligence: (() => void) | undefined;
   let cleanupBtwAskTimer: (() => void) | undefined;
 
   pi.on("session_start", async (_event, ctx) => {
@@ -72,6 +83,8 @@ export default function wowTuiExtension(pi: ExtensionAPI): void {
 
     unsubscribeWorkflow?.();
     unsubscribeWorkflow = undefined;
+    unsubscribeCodeIntelligence?.();
+    unsubscribeCodeIntelligence = undefined;
     cleanupBtwAskTimer?.();
     cleanupBtwAskTimer = undefined;
 
@@ -115,6 +128,12 @@ export default function wowTuiExtension(pi: ExtensionAPI): void {
       unsubscribeWorkflow = subscribeWorkflowState(refreshWorkflowWidgets);
       refreshWorkflowWidgets();
     }
+
+    if (WOW_TUI_CONFIG.codeIntelligence) {
+      const refreshCodeIntelligence = () => updateCodeIntelligenceStatus(ctx);
+      unsubscribeCodeIntelligence = subscribeCodeIntelligence(refreshCodeIntelligence);
+      refreshCodeIntelligence();
+    }
   });
 
   pi.on("session_shutdown", async (_event, ctx) => {
@@ -122,6 +141,8 @@ export default function wowTuiExtension(pi: ExtensionAPI): void {
 
     unsubscribeWorkflow?.();
     unsubscribeWorkflow = undefined;
+    unsubscribeCodeIntelligence?.();
+    unsubscribeCodeIntelligence = undefined;
     cleanupBtwAskTimer?.();
     cleanupBtwAskTimer = undefined;
 
@@ -136,6 +157,9 @@ export default function wowTuiExtension(pi: ExtensionAPI): void {
     if (WOW_TUI_CONFIG.workflowWidgets) {
       ctx.ui.setStatus(WORKFLOW_STATE_TYPE, undefined);
       ctx.ui.setWidget(`${WORKFLOW_STATE_TYPE}-todos`, undefined);
+    }
+    if (WOW_TUI_CONFIG.codeIntelligence) {
+      ctx.ui.setStatus(CODE_INTELLIGENCE_STATUS_KEY, undefined);
     }
     clearAskPanelWidget(ctx);
     if (WOW_TUI_CONFIG.historyPeek) {

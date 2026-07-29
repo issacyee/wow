@@ -51,9 +51,34 @@ Pi packages 会通过 extensions 获得完整系统访问权限，因此安装�
 - **只读探讨/规划/修正**：这些模式允许 `codegraph_*`、`read`、`grep`、`find`、`ls`、安全只读 `bash` 和 `webfetch`，并阻止 `edit`、`write` 和不安全命令
 - **对齐式探讨流程**：discuss 模式会提出同批互不依赖的澄清问题，并根据回答继续追问，直到高度确信已理解用户真实需求和目标；随后总结共同理解并给出方向，但不会在未使用 `??` 时写成计划。
 - **可审查计划结构**：计划包含 Goals、Background、Key Decisions、Non-goals、Implementation Steps、Acceptance Criteria、Verification 和 Risks，并以 `Ready to execute?` 结尾
-- **执行总结**：执行回复会被引导包含 Summary、Modified Files 和 Follow-up Suggestions；提交仍由用户手动完成
+- **Review Handoff**：仅在完整执行成功后生成实现者交接材料，包含实现意图、行为变化、本次执行增量、既有工作区改动交互、影响范围、实际验证证据、风险/未知事项和建议人工审查路径；它明确不代表独立审查通过
 - **Prefix-cache friendly**：扩展不会修改 system prompt，不会切换 active tools，会从 provider context 过滤过期 workflow context，并把状态存储在 LLM context 外的 custom entries 中
 - **UI-independent logic**：workflow 状态由 `state.ts` 暴露；编辑器颜色、status、todo widget 由 `wow-tui` 展示
+
+### Code Intelligence — `/understand` 与 `/review`
+
+由人手动触发的本地代码认知和独立审查。完整产物默认不进入主 Agent 上下文。
+
+认知命令：
+- `/understand` — 交互选择整个项目或模块/路径/symbol/功能
+- `/understand <scope>` — 针对明确范围生成或复用分层心智模型
+- `/understand:ask <question>` — 基于当前认知缓存继续深入
+- `/understand:promote` — 只把精简认知摘要提升到主上下文
+
+项目缺少 CodeGraph 索引时会自动初始化；不可用时明确降级。认知 artifact
+记录章节级文件依赖，代码变化后只标记受影响章节 stale。
+
+审查命令：
+- `/review [scope]` — 独立分析相对 `HEAD` 的 staged、unstaged 和 untracked 改动
+- `/review:ask <question>` — 质询或深入当前审查
+- `/review:dispose [finding-id] [accepted|fix-requested|deferred|needs-evidence]` — 记录人工处置
+- `/review:promote` — 只把精简审查摘要提升到主上下文
+
+可以在项目或全局 `settings.json` 中配置 `wow.codeIntelligence.reviewerModel`
+（`"provider/model-id"` 或 `{ "provider": "...", "id": "..." }`）。未配置时回退到
+当前模型的独立上下文，并显示实际隔离等级。`/review` 不运行测试、lint、类型检查，
+也不修改代码；这些只会作为“未执行建议”出现。指纹化报告缓存在
+`.pi/wow/code-intelligence/`，代码和审查输入不变时直接复用。
 
 ### Locale — OS-Locale 语言策略
 
@@ -128,6 +153,7 @@ BTW 使用独立 LLM 调用，并把 topic state 作为 custom entries 持久化
 - **Workflow presenter**：基于 workflow state 展示 status indicator 和 todo widget
 - **Working tips carousel**：agent working 时在 Working message 中轮播精简使用提示（`Working 0ms • Tip: ...`），不会进入模型上下文
 - **BTW message rendering**：为 `/btw:*` side-channel messages 提供自定义渲染
+- **Code-intelligence rendering**：展示分层认知卡片、独立审查 finding/处置状态和 Review Handoff 导航卡片
 - **Focus-style tool rendering**：内置工具（`read`、`bash`、`edit`、`write`、`grep`、`find`、`ls`）以单行 dim-text 显示工具调用，并隐藏结果预览
 - **Config UI**：`/config:global` 和 `/config:project` 打开固定 scope 的交互式配置界面，可管理模型/thinking 默认值、常用 settings（theme、transport、queue、retry、compaction、terminal/editor、shell/session、warnings），以及资源路径/source 数组（`extensions`、`skills`、`prompts`、`themes`、`packages`）。按 `Ctrl+U` 可在当前 scope unset 并回退到继承的 global 或内置默认值；`Esc` 用于返回或退出菜单。项目级模型变更会立即应用，同时恢复原来的全局默认模型。
 

@@ -8,7 +8,8 @@
 
 import { existsSync } from "node:fs";
 import { delimiter, dirname, join, normalize } from "node:path";
-import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { spawn, type ChildProcessByStdio } from "node:child_process";
+import type { Readable } from "node:stream";
 
 const DEFAULT_TIMEOUT_MS = 60_000;
 const MAX_TIMEOUT_MS = 120_000;
@@ -204,7 +205,7 @@ async function runProcess(
     let missing = false;
     let outputTooLarge = false;
     let settled = false;
-    let child: ChildProcessWithoutNullStreams | undefined;
+    let child: ChildProcessByStdio<null, Readable, Readable> | undefined;
 
     const abortHandler = () => {
       timedOut = true;
@@ -252,6 +253,9 @@ async function runProcess(
       return;
     }
 
+    const runningChild = child;
+    if (!runningChild) return;
+
     if (options.signal?.aborted) {
       abortHandler();
     } else {
@@ -271,10 +275,10 @@ async function runProcess(
       }
     };
 
-    child.stdout.on("data", (chunk) => append("stdout", chunk));
-    child.stderr.on("data", (chunk) => append("stderr", chunk));
+    runningChild.stdout.on("data", (chunk) => append("stdout", chunk));
+    runningChild.stderr.on("data", (chunk) => append("stderr", chunk));
 
-    child.on("error", (error: any) => {
+    runningChild.on("error", (error: any) => {
       missing = error?.code === "ENOENT";
       finish({
         stdout,
@@ -286,7 +290,7 @@ async function runProcess(
       });
     });
 
-    child.on("close", (code) => {
+    runningChild.on("close", (code) => {
       finish({
         stdout,
         stderr,

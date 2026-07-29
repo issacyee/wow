@@ -18,6 +18,7 @@
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { AssistantMessage, TextContent } from "@earendil-works/pi-ai";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { captureWorktreeSnapshot, type WorktreeSnapshot } from "../wow/git.ts";
 
 import {
   buildAutoExecutePrompt,
@@ -72,8 +73,13 @@ import { isSafeCommand } from "../wow/safe.ts";
 import { registerHumanLedWorkflowTips } from "./tips.ts";
 import {
   WORKFLOW_EXECUTION_SUMMARY_TYPE,
-  type WorkflowExecutionSummaryDetails,
+  WORKFLOW_REVIEW_HANDOFF_TYPE,
+  type WorkflowReviewHandoffDetails,
 } from "./types.ts";
+import {
+  buildReviewHandoffDetails,
+  looksLikeCompletedReviewHandoff,
+} from "./handoff.ts";
 
 const MAX_RESTORED_PLAN_CHARS = 12_000;
 const READ_ONLY_ALLOWED_TOOLS = new Set([
@@ -97,6 +103,7 @@ let planFromPreviousDiscussion = false;
 let executionProgressDirty = false;
 let compactionRecoveryMode: ExecutionMode | null = null;
 let lastExecutionModeBeforeCompaction: ExecutionMode | null = null;
+let executionBaseline: WorktreeSnapshot | undefined;
 
 /** Most recent assistant ask blocks, for Alt+K reopen. */
 let lastAskBlocks: AskBlock[] = [];
@@ -133,33 +140,34 @@ export function getLastAskBlocks(ctx?: ExtensionContext): AskBlock[] {
   return lastAskBlocks;
 }
 
-function cloneTodoItems(items: TodoItem[]): TodoItem[] {
-  return items.map((item) => ({ ...item }));
-}
-
-function queueExecutionSummaryMessage(
+function queueReviewHandoffMessage(
   pi: ExtensionAPI,
   ctx: ExtensionContext,
   todoItems: TodoItem[],
+  assistantText: string,
+  baseline: WorktreeSnapshot | undefined,
   attempt = 0,
 ): void {
-  if (todoItems.length === 0) return;
+  if (todoItems.length === 0 || !looksLikeCompletedReviewHandoff(assistantText)) return;
 
   setTimeout(() => {
     if (typeof ctx.isIdle === "function" && !ctx.isIdle()) {
-      if (attempt < 40) queueExecutionSummaryMessage(pi, ctx, todoItems, attempt + 1);
+      if (attempt < 40) queueReviewHandoffMessage(pi, ctx, todoItems, assistantText, baseline, attempt + 1);
       return;
     }
 
-    const details: WorkflowExecutionSummaryDetails = {
-      version: 1,
-      todoItems: cloneTodoItems(todoItems),
-    };
+    const finalSnapshot = captureWorktreeSnapshot(ctx.cwd);
+    const details: WorkflowReviewHandoffDetails = buildReviewHandoffDetails(
+      assistantText,
+      todoItems,
+      baseline,
+      finalSnapshot,
+    );
 
     try {
       pi.sendMessage({
-        customType: WORKFLOW_EXECUTION_SUMMARY_TYPE,
-        content: "Execution completed",
+        customType: WORKFLOW_REVIEW_HANDOFF_TYPE,
+        content: "Review Handoff",
         display: true,
         details,
       }, { triggerTurn: false });
@@ -264,14 +272,6 @@ function getLatestAssistantText(messages: AgentMessage[]): string {
     if (isAssistantMessage(message)) return getTextContent(message);
   }
   return "";
-}
-
-function looksLikeCompletedExecutionSummary(text: string): boolean {
-  if (!/(^|\n)\s*#{1,3}\s*(Execution Summary|执行总结|执行摘要|执行结果|实施总结|完成总结)\s*($|\n)/iu.test(text)) {
-    return false;
-  }
-
-  return !/\b(blocked|failed|failure|partial|partially|incomplete|unable to complete|could not complete|cannot complete|not completed|not complete|stopped|aborted|deferred|skipped)\b|阻塞|失败|未完成|没有完成|无法完成|不能完成|部分完成|只完成|跳过|停止|中止|待处理|剩余(?:步骤|任务|工作)?/iu.test(text);
 }
 
 function truncatePlanForRestore(text: string): string | undefined {
@@ -539,7 +539,7 @@ function isWorkflowContextMessage(message: any): boolean {
 
 function isWorkflowExecutionSummaryMessage(message: any): boolean {
   return (message?.role === "custom" || message?.type === "custom_message") &&
-    message.customType === WORKFLOW_EXECUTION_SUMMARY_TYPE;
+    (message.customType === WORKFLOW_EXECUTION_SUMMARY_TYPE || message.customType === WORKFLOW_REVIEW_HANDOFF_TYPE);
 }
 
 function filterExecutionSummaryMessages<T>(messages: T[]): T[] {
@@ -547,7 +547,8 @@ function filterExecutionSummaryMessages<T>(messages: T[]): T[] {
 }
 
 function isWorkflowExecutionSummaryEntry(entry: any): boolean {
-  return entry?.type === "custom_message" && entry.customType === WORKFLOW_EXECUTION_SUMMARY_TYPE;
+  return entry?.type === "custom_message" &&
+    (entry.customType === WORKFLOW_EXECUTION_SUMMARY_TYPE || entry.customType === WORKFLOW_REVIEW_HANDOFF_TYPE);
 }
 
 function contextText(message: any): string {
@@ -622,6 +623,7 @@ export default function humanLedCodingWorkflowExtension(pi: ExtensionAPI): void 
     planFromPreviousDiscussion = (parsed.mode === "plan" || parsed.mode === "autoExecute") && parsed.prompt.length === 0;
     if (isExecutionMode(parsed.mode)) {
       lastExecutionModeBeforeCompaction = parsed.mode;
+      executionBaseline = captureWorktreeSnapshot(ctx.cwd);
     } else {
       clearExecutionRecovery();
     }
@@ -866,12 +868,15 @@ export default function humanLedCodingWorkflowExtension(pi: ExtensionAPI): void 
       if (isRecoveryMode(executionMode)) recoverExecutionState(pi, ctx, executionMode);
       markCompletedTodosFromMessages(event.messages);
       const todoItems = getTodoItems();
+      const latestAssistantText = getLatestAssistantText(event.messages);
       const hasExecutionPlan = hasActivePlan() || todoItems.length > 0;
-      const allExtractedStepsCompleted = todoItems.length === 0 || todoItems.every((item) => item.completed);
-      if (hasExecutionPlan && (allExtractedStepsCompleted || looksLikeCompletedExecutionSummary(getLatestAssistantText(event.messages)))) {
+      const allExtractedStepsCompleted = todoItems.length > 0 && todoItems.every((item) => item.completed);
+      const completeHandoff = looksLikeCompletedReviewHandoff(latestAssistantText);
+      if (hasExecutionPlan && allExtractedStepsCompleted && completeHandoff) {
         finishExecution();
         clearExecutionRecovery();
-        queueExecutionSummaryMessage(pi, ctx, getTodoItems());
+        queueReviewHandoffMessage(pi, ctx, getTodoItems(), latestAssistantText, executionBaseline);
+        executionBaseline = undefined;
       } else if (hasExecutionPlan) {
         continueExecution();
       } else {
@@ -902,6 +907,7 @@ export default function humanLedCodingWorkflowExtension(pi: ExtensionAPI): void 
     hasExecutionAdjustment = false;
     planFromPreviousDiscussion = false;
     executionProgressDirty = false;
+    executionBaseline = undefined;
     queuedAskFingerprints.clear();
     unregisterTips();
   });

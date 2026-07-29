@@ -10,6 +10,7 @@
  *   html.ts      — HTML → Markdown/Text conversion
  *   shell.ts     — Synchronous command execution wrappers
  *   safe.ts      — Read-only bash command safety checks
+ *   git.ts       — Read-only Git worktree snapshots and fingerprints
  *   gitignore.ts — Helpers for local generated-directory .gitignore files
  *   tips.ts      — Shared working-tip registry
  *
@@ -76,6 +77,18 @@ export {
 export {
   isSafeCommand,
 } from "./safe.ts";
+
+export {
+  captureWorktreeSnapshot,
+  collectLocalChanges,
+  findGitRoot,
+  hashDependencyFiles,
+  runGit,
+  type GitRunResult,
+  type LocalChanges,
+  type WorktreeFileState,
+  type WorktreeSnapshot,
+} from "./git.ts";
 
 export {
   ensureLocalDirectoryGitignore,

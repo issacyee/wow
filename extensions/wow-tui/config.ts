@@ -11,6 +11,7 @@ export const WOW_TUI_CONFIG = {
   workflowWidgets: true,
   focusToolRendering: true,
   btwRendering: true,
+  codeIntelligence: true,
   workingTimers: true,
   workingTips: true,
   historyPeek: true,

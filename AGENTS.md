@@ -31,6 +31,12 @@ wow/
 │   │   ├── ask.ts           # discuss :::ask block parser, answer formatter, panel trigger singleton
 │   │   ├── state.ts         # UI-independent workflow state store
 │   │   └── tips.ts          # Workflow working tips
+│   ├── code-intelligence/   # /understand + /review local mental models and independent review
+│   │   ├── index.ts         # Commands, isolated model calls, context collection
+│   │   ├── prompts.ts       # Stable standalone-analysis prompts
+│   │   ├── state.ts         # UI-independent active artifact/status store
+│   │   ├── store.ts         # Fingerprinted local artifact cache
+│   │   └── types.ts         # Understanding/review artifact and message types
 │   ├── git-commit/          # /git-commit — LLM-generated Conventional Commits
 │   │   ├── index.ts         # Standalone LLM call, parses output, executes commit via temp file
 │   │   └── tips.ts          # Git commit working tips
@@ -118,6 +124,7 @@ Sub-modules:
 - **shell.ts** — `execOrNull()`, `execWithError()`. Synchronous command execution wrappers with error handling.
 - **safe.ts** — `isSafeCommand()`. Shared read-only bash allowlist used by workflow gates.
 - **settings.ts** — `readWowSetting()`. Shared settings.json reader (project-then-global resolution, never throws) used by logic extensions to read custom Wow keys without importing TUI code.
+- **git.ts** — safe spawn-based read-only Git worktree collection, execution snapshots, local-change fingerprints, and dependency hashing used by HLCW and code-intelligence.
 - **tips.ts** — `registerWowTips()`, `getWowTips()`, `clearWowTips()`. Shared UI-only working-tip registry used by feature extensions and `wow-tui`.
 
 ### locale
@@ -138,6 +145,7 @@ A human-led coding workflow triggered by `?`/`??`/`?!`/`?$`/`$` input prefixes. 
 **Key mechanics:**
 - `EXECUTE_MARKER` (`"Ready to execute?"`) is the bridge between planning/revision and execution. Plans are captured from reverse-scanned assistant messages at `agent_end`; `?$` also captures the generated plan as soon as it streams so todo progress can update in the same turn.
 - Plans use Goals / Background / Key Decisions / Non-goals / Implementation Steps / Acceptance Criteria / Verification / Risks.
+- Completed execution now emits a `Review Handoff` instead of a minimal Execution Summary. It is implementing-agent evidence, not an independent review, and includes execution-delta/worktree attribution, behavior, impact, validation, risks, unknowns, and a suggested human review path.
 - `[DONE:n]` markers in AI responses are tracked via `markCompletedSteps()` to update execution progress state.
 - **Aligned discuss flow**: discuss mode asks non-dependent clarifying question batches, follows up based on the human's answers until it is at least 95% confident about the real needs and goals, then summarizes the shared understanding and proposes a direction without turning it into a plan unless the user asks with `??`.
 - **Structured discuss questions**: in discuss mode, when discrete decisions are needed the model emits `:::ask` fenced blocks (with id, single/multiple choice, recommended default marked `[x]`, optional `hint`, optional custom-answer toggle). At turn end the extension parses these blocks and, in TUI mode, opens an overlay panel so the human can pick the default with Enter, choose another, type a custom answer, or skip. The selected answers are filled into the editor as a `? [Discuss answers]` message (not auto-sent) so the human can append notes, switch the prefix (`?`/`??`/`?$`/none), and send — preserving the `? → ? → ?? → $` or `? → ?$` workflow continuity. Skipped items are marked `(skipped — 你自行判断决定)` and the model decides itself.
@@ -164,6 +172,10 @@ Responsibilities:
 - Registers custom message renderers such as BTW side-channel message rendering.
 
 Removing `./extensions/wow-tui/index.ts` from `package.json` disables these package visuals while leaving logic extensions functional.
+
+### code-intelligence
+
+Human-triggered local code comprehension and independent review. `/understand [scope]` builds a layered project/module mental model, automatically initializes CodeGraph when missing, records section dependency fingerprints, and supports `/understand:ask` plus explicit summary promotion. `/review [scope]` reviews staged, unstaged, and untracked changes relative to `HEAD` in an isolated standalone model context; it never runs tests/lint/type checks or modifies code. Review model selection reads `wow.codeIntelligence.reviewerModel`, with current-model isolated fallback. Fingerprinted artifacts live under `.pi/wow/code-intelligence/`; full display messages are filtered from provider context, while `:promote` explicitly adds only a concise summary. Finding dispositions are recorded through `/review:dispose`. Visual cards/status are owned by `wow-tui/code-intelligence.ts`.
 
 ### git-commit
 

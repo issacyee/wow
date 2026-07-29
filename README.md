@@ -63,9 +63,37 @@ when a prefix is used.
 - **Read-only discussion/planning/revision**: these modes allow `codegraph_*`, `read`, `grep`, `find`, `ls`, safe read-only `bash`, and `webfetch`, while blocking `edit`, `write`, and unsafe commands
 - **Aligned discussion flow**: discuss mode asks non-dependent clarifying question batches, follows up until it is highly confident about the user's real needs and goals, then summarizes the shared understanding and proposes a direction without turning it into a plan unless `??` is used.
 - **Reviewable plan structure**: plans include Goals, Background, Key Decisions, Non-goals, Implementation Steps, Acceptance Criteria, Verification, and Risks, ending with `Ready to execute?`
-- **Execution summary**: execution responses are guided to include Summary, Modified Files, and Follow-up Suggestions; commits remain manual
+- **Review Handoff**: a fully completed execution emits an implementing-agent handoff with intent, behavioral changes, execution delta, existing-worktree interactions, impact surface, observed validation evidence, risks/unknowns, and a suggested human review path; it is explicitly not an independent review
 - **Prefix-cache friendly**: the extension never mutates the system prompt, never switches active tools, filters stale workflow context messages from provider context, and stores state in custom entries outside LLM context
 - **UI-independent logic**: workflow state is exposed from `state.ts`; editor colors, status, and todo widgets are presented by `wow-tui`
+
+### Code Intelligence — `/understand` and `/review`
+
+Local, human-triggered code comprehension and review that stays outside the main
+agent context unless explicitly promoted.
+
+Understanding commands:
+- `/understand` — interactively choose the whole project or a module/path/symbol/feature
+- `/understand <scope>` — build or reuse a layered mental model for an explicit scope
+- `/understand:ask <question>` — continue from the current cached understanding
+- `/understand:promote` — add only a concise understanding summary to main context
+
+`/understand` automatically initializes CodeGraph when the project has no index and
+falls back to degraded file/project evidence if initialization is unavailable. Artifacts
+record section-level file dependencies and only mark affected sections stale.
+
+Review commands:
+- `/review [scope]` — independently analyze staged, unstaged, and untracked changes relative to `HEAD`
+- `/review:ask <question>` — challenge or expand the current review
+- `/review:dispose [finding-id] [accepted|fix-requested|deferred|needs-evidence]` — record human disposition
+- `/review:promote` — add only a concise review summary to main context
+
+Review uses `wow.codeIntelligence.reviewerModel` from project/global `settings.json`
+when configured (`"provider/model-id"` or `{ "provider": "...", "id": "..." }`).
+Otherwise it falls back to the active model in an independent context and displays the
+actual isolation level. It never runs tests, lint, type checking, or edits; those appear
+only as unexecuted suggestions. Fingerprinted reports are cached locally under
+`.pi/wow/code-intelligence/` and reused when code and review inputs are unchanged.
 
 ### Locale — OS-Locale Language Policy
 
@@ -152,6 +180,7 @@ It owns package-level singleton TUI resources:
 - **Workflow presenter**: status indicator and todo widget based on workflow state
 - **Working tips carousel**: while the agent is working, concise usage tips rotate in the Working message (`Working 0ms • Tip: ...`) without entering the model context
 - **BTW message rendering**: custom rendering for `/btw:*` side-channel messages
+- **Code-intelligence rendering**: layered understanding cards, independent review findings/dispositions, and Review Handoff navigation cards
 - **Focus-style tool rendering**: built-in tools (`read`, `bash`, `edit`, `write`, `grep`, `find`, `ls`) render as single dim-text lines with hidden result previews
 - **Config UI**: `/config:global` and `/config:project` open scoped interactive settings UIs for model/thinking defaults, common settings (theme, transport, queues, retry, compaction, terminal/editor, shell/session, warnings), and resource path/source arrays (`extensions`, `skills`, `prompts`, `themes`, `packages`). Press `Ctrl+U` to unset entries at the current scope and fall back to inherited/global or built-in defaults; `Esc` returns or exits menus. Project model changes are applied immediately while restoring the previous global default model.
 
@@ -281,6 +310,7 @@ it serves purely as an import source for common functions.
 | `html.ts`     | `convertHTMLToMarkdown`, `extractTextFromHTML`, `stripTags`, `isRasterImage`, `STRIP_TAGS`                                          | webfetch                          |
 | `shell.ts`    | `execOrNull`, `execWithError`                                                                                                       | git-commit                        |
 | `safe.ts`     | `isSafeCommand`                                                                                                                     | human-led-coding-workflow         |
+| `git.ts`      | read-only worktree snapshots, local-change collection, dependency fingerprints                                                     | HLCW, code-intelligence           |
 | `settings.ts` | `readWowSetting`                                                                                                                    | shared settings consumers         |
 | `tips.ts`     | `registerWowTips`, `getWowTips`, `clearWowTips`                                                                                     | feature tips, wow-tui working     |
 
