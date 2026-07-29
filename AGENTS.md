@@ -20,10 +20,18 @@ wow/
 │   │   ├── shell.ts         # Sync command execution wrappers
 │   │   ├── safe.ts          # Read-only bash safety check
 │   │   ├── settings.ts      # Shared settings.json reader
+│   │   ├── path-text.ts     # UI-independent plain-text path shortening
 │   │   └── tips.ts          # Shared working-tip registry
 │   ├── locale/              # OS-locale language policy via before_agent_start
 │   │   ├── index.ts         # Appends OS-locale hard language directive to the system prompt
 │   │   └── tips.ts          # Locale working tips
+│   ├── notifications/       # Settled Working desktop notifications
+│   │   ├── index.ts         # Lifecycle policy and /notify:test command
+│   │   ├── provider.ts      # Internal notification provider contracts
+│   │   ├── desktop.ts       # Native Windows/macOS/Linux/WSL backends
+│   │   ├── context.ts       # Session/instance identity and notification content
+│   │   ├── focus.ts         # Shared terminal-focus state and parser
+│   │   └── settings.ts      # Defaults and scoped setting resolution
 │   ├── human-led-coding-workflow/ # ?/??/?!/?$/$ human-led coding workflow logic
 │   │   ├── index.ts         # Prefix routing, context injection, tool gates, state persistence
 │   │   ├── prompts.ts       # Byte-stable discuss/plan/revise/execute prompts
@@ -52,6 +60,8 @@ wow/
 │   │   ├── editor.ts        # Composite editor: pi label, workflow border, IME conversion
 │   │   ├── history-peek.ts  # Ctrl+R current-branch history search overlay and pinned context widget
 │   │   ├── ask-panel.ts     # discuss :::ask structured-question overlay (consumes logic-layer ask trigger)
+│   │   ├── instance-title.ts # Session/instance terminal title
+│   │   ├── terminal-focus.ts # Terminal focus protocol owner for notifications
 │   │   ├── tools.ts         # Focus-style built-in tool rendering overrides
 │   │   ├── widgets.ts       # Workflow status/todo presenters
 │   │   ├── tips.ts          # Wow TUI working tips
@@ -120,6 +130,7 @@ Sub-modules:
 - **locale.ts** — `detectLocale()`, `detectPrimaryLocale()`, `localeToDisplayName()`, `buildLanguageInstruction()`, `LOCALE_MAP`. Shared locale and OS-locale language instruction helpers; `localeToDisplayName()` normalizes script subtags so Simplified/Traditional Chinese are distinguished accurately.
 - **renderer.ts** — `createFocusRenderCall()`, `focusRenderCall()`, `focusRenderResult()`. Dim-style rendering helpers for custom tools.
 - **paths.ts** — `shortenPath()`, `linkPath()`, `shortenCommand()`. Path display utilities with OSC 8 hyperlink support.
+- **path-text.ts** — `shortenPlainPath()`. UI-independent path shortening for notifications and other plain-text channels.
 - **html.ts** — `convertHTMLToMarkdown()`, `extractTextFromHTML()`, `stripTags()`, `isRasterImage()`, `STRIP_TAGS`. AST-based HTML conversion via node-html-markdown.
 - **shell.ts** — `execOrNull()`, `execWithError()`. Synchronous command execution wrappers with error handling.
 - **safe.ts** — `isSafeCommand()`. Shared read-only bash allowlist used by workflow gates.
@@ -130,6 +141,14 @@ Sub-modules:
 ### locale
 
 Appends an OS-locale-backed hard `[LANGUAGE]` directive to the system prompt via `before_agent_start`: the directive names the target language explicitly (e.g. `中文（简体）`) and instructs the model to keep technical identifiers, code, paths, commands, and commit messages in their original language. This is more reliable than inferring the user's language from each turn, which misfires when inputs mix natural language with English code/paths/commands. On a single machine the detected OS locale is stable across turns, so the system-prompt prefix cache is unaffected. `localeToDisplayName()` normalizes script subtags (`zh-Hans-CN` → `zh-CN`, `zh-Hant` → `zh-TW`) so Simplified/Traditional Chinese are distinguished accurately; `detectLocale()` / `detectPrimaryLocale()` remain available for local UI/prompt-template choices.
+
+### notifications
+
+Sends native desktop notifications after a complete Working cycle settles. The cycle starts at the first `agent_start` and ends at `agent_settled`, so automatic retries, compaction recovery, and queued continuations produce at most one notice. Runs below `wow.notifications.minimumWorkingDurationMs` (default `10000`), user-cancelled runs, and runs ending while the terminal is known to be focused are suppressed. Unknown focus falls back to notifying to avoid missed completions.
+
+Notification content is deterministic and excludes assistant output: project, shortened path, Git branch when available, a session-stable `S-XXXX`, a process-stable `I-XXXX`, and completed/failed next-action text. `wow-tui/instance-title.ts` mirrors those labels in `π project [S-XXXX · I-XXXX]` so the source terminal can be located. Notification clicks intentionally do nothing.
+
+The internal `NotificationProvider` contract separates lifecycle policy from delivery. The Windows/WSL backend uses `powershell.exe`, a per-user `EarendilWorks.Pi` AppUserModelID/Start Menu shortcut, `ToastGeneric`, and explicit `SuppressPopup=false`; macOS uses `osascript`, and Linux uses `notify-send`. Normal delivery failures are silent; `/notify:test` reports backend availability plus Windows identity/popup/notifier diagnostics. `wow.notifications.enabled` defaults to `true`; both settings resolve project-over-global and are editable through the Wow config UI. Terminal Focus Reporting protocol ownership belongs to `wow-tui/terminal-focus.ts`; shared focus state remains UI-independent in `notifications/focus.ts`.
 
 ### human-led-coding-workflow
 
@@ -165,6 +184,7 @@ Responsibilities:
 - Applies the editor `π` top-border label.
 - Applies workflow prefix border colors and Chinese IME prefix conversion.
 - Provides prompt-editor `Ctrl+R` History Peek for current-branch visible chat history search, match highlighting, `Enter` pinned nearby context, and `Ctrl+Q` pinned peek clearing from either the prompt editor or search overlay without inserting history into the prompt or provider context.
+- Owns session/instance terminal titles plus terminal Focus Reporting enable/disable and focus input interception for Working completion notification suppression.
 - Presents workflow status and todo widgets by subscribing to workflow state.
 - Rotates feature-owned usage tips in the Working message without writing them to session or provider context.
 - Re-registers built-in tools with focus-style minimal rendering.

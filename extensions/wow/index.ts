@@ -7,6 +7,7 @@
  *   locale.ts    — OS language detection and language instruction builder
  *   renderer.ts  — Focus-style dim rendering for custom tools
  *   paths.ts     — Path shortening and OSC 8 hyperlink creation
+ *   path-text.ts — UI-independent plain-text path shortening
  *   html.ts      — HTML → Markdown/Text conversion
  *   shell.ts     — Synchronous command execution wrappers
  *   safe.ts      — Read-only bash command safety checks
@@ -47,6 +48,10 @@ export {
   type AdaptiveLinesBuilder,
   type AdaptiveLinesOptions,
 } from "./renderer.ts";
+
+export {
+  shortenPlainPath,
+} from "./path-text.ts";
 
 export {
   fitCommand,

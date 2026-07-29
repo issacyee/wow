@@ -22,9 +22,15 @@ import { registerConfigUI } from "./config-ui.ts";
 import { createEditorComponent } from "./editor.ts";
 import { installFooter } from "./footer.ts";
 import { clearPinnedHistoryPeek, openHistoryPeek } from "./history-peek.ts";
+import { clearInstanceTerminalTitle, setInstanceTerminalTitle } from "./instance-title.ts";
 import { clearAskPanelWidget, handleAskPanelInput, openAskPanel, reopenAskPanel } from "./ask-panel.ts";
 import { registerPiNativeTips } from "./pi-tips.ts";
 import { registerFocusToolRendering } from "./tools.ts";
+import {
+  installTerminalFocusReporting,
+  setTerminalFocusWorking,
+  uninstallTerminalFocusReporting,
+} from "./terminal-focus.ts";
 import { registerWowTuiTips } from "./tips.ts";
 import { updateWorkflowWidgets } from "./widgets.ts";
 import { createWorkingTimerController } from "./working.ts";
@@ -80,6 +86,8 @@ export default function wowTuiExtension(pi: ExtensionAPI): void {
 
   pi.on("session_start", async (_event, ctx) => {
     setAskPanelTrigger(openAskPanel);
+    installTerminalFocusReporting(ctx);
+    setInstanceTerminalTitle(ctx);
 
     unsubscribeWorkflow?.();
     unsubscribeWorkflow = undefined;
@@ -136,8 +144,21 @@ export default function wowTuiExtension(pi: ExtensionAPI): void {
     }
   });
 
+  pi.on("agent_start", async (_event, ctx) => {
+    if (ctx.mode === "tui") setTerminalFocusWorking(true);
+  });
+
+  // Keep this handler registered after the notifications extension in package
+  // load order so notification policy reads the completed Working focus state
+  // before the visual shell clears its cancellation-tracking flag.
+  pi.on("agent_settled", async (_event, ctx) => {
+    if (ctx.mode === "tui") setTerminalFocusWorking(false);
+  });
+
   pi.on("session_shutdown", async (_event, ctx) => {
     setAskPanelTrigger(null);
+    clearInstanceTerminalTitle();
+    uninstallTerminalFocusReporting();
 
     unsubscribeWorkflow?.();
     unsubscribeWorkflow = undefined;

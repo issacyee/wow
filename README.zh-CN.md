@@ -141,6 +141,45 @@ BTW 使用独立 LLM 调用，并把 topic state 作为 custom entries 持久化
 
 通过一个声明式数组注册命令别名，而不是为每个别名创建独立文件。目前提供 `/exit` 作为内置 `/quit` 的别名。新增映射时只需追加到 `COMMAND_MAPPINGS` 数组。
 
+### Working 完成通知 — `/notify:test`
+
+当一次完整的 pi Working 周期真正 settled、且终端未被确认处于前台时，发送原生桌面通知。计时会跨越自动重试、auto-compaction recovery 和 queued continuations，因此一次用户任务最多通知一次。短于 10 秒的运行和用户主动取消的运行不会通知。
+
+通知会标明来源，但不会包含 AI 回复内容。典型完成通知如下：
+
+```text
+Pi
+wow · S-A3F2 · I-7C9D
+Working 已完成 · 等待你的下一步操作
+D:\workspace\ai\wow · main
+```
+
+`S-XXXX` 在恢复同一个 session 时保持稳定；`I-XXXX` 用于区分正在运行的 pi 进程，重启后改变。Wow 同时把它们写入终端/标签页标题：`π wow [S-A3F2 · I-7C9D]`，方便收到通知后定位实例。点击通知不会执行操作。
+
+无需额外 npm runtime dependency，会按平台选择后端：
+
+- Windows：通过 `powershell.exe`、已注册的 `EarendilWorks.Pi` Win32 身份和原生 `ToastGeneric` 横幅发送；首次投递时按需安装当前用户的 **Pi Notifications** 开始菜单快捷方式
+- WSL：通过 `powershell.exe` 向 Windows 宿主机发送相同横幅
+- macOS：通过 `osascript` 发送 Notification Center 通知
+- Linux：调用 `notify-send`
+
+支持的终端会通过 Focus Reporting 上报前后台状态。如果无法获得焦点状态（例如部分 tmux/SSH 环境），Wow 会退化为发送通知，优先避免漏报。日常运行中通知失败会保持静默；使用 `/notify:test` 可实际发送测试通知，并报告 backend 可用性，以及 Windows identity、popup request 和 notifier setting 诊断。
+
+功能默认启用，项目配置覆盖全局配置：
+
+```json
+{
+  "wow": {
+    "notifications": {
+      "enabled": true,
+      "minimumWorkingDurationMs": 10000
+    }
+  }
+}
+```
+
+两个配置项都可以在 `/config:global` 和 `/config:project` 的 **Notifications** 页面中编辑。
+
 ### Wow TUI — Unified Visual Shell
 
 `wow-tui` 是本包唯一的视觉组合层。它集中管理纯 TUI 行为，使逻辑扩展可以脱离视觉代码运行。从 `package.json` 中移除 `./extensions/wow-tui/index.ts` 会关闭这些视觉效果，但 workflow/cache/tool 逻辑仍然可用。
@@ -149,13 +188,14 @@ BTW 使用独立 LLM 调用，并把 topic state 作为 custom entries 持久化
 
 - **Footer compositor**：自定义两行 footer，包含可点击 CWD、git branch、model/thinking level、context usage bar、token/cache/cost/billing stats 和 extension statuses
 - **Composite editor**：`π` 顶部边框 label、workflow prefix 边框颜色、中文 IME 全角前缀转换（`？` `！` `￥` → `?` `!` `$`），以及 prompt editor 内的 `Ctrl+R` History Peek
+- **Terminal identity and focus**：把标签页标题设置为 `π project [S-XXXX · I-XXXX]`，并跟踪 focus-in/focus-out 以抑制前台 Working 完成通知；终端 escape-sequence 的所有权仍保留在视觉层
 - **History Peek**：在编写 prompt 时搜索当前 branch 的可见聊天历史。匹配内容会高亮，`Enter` 会把附近上下文 pin 到编辑器上方供参考，在 prompt editor 或 search overlay 内按 `Ctrl+Q` 可清除 pinned peek，并且不会把历史文本插入 prompt 或 provider context
 - **Workflow presenter**：基于 workflow state 展示 status indicator 和 todo widget
 - **Working tips carousel**：agent working 时在 Working message 中轮播精简使用提示（`Working 0ms • Tip: ...`），不会进入模型上下文
 - **BTW message rendering**：为 `/btw:*` side-channel messages 提供自定义渲染
 - **Code-intelligence rendering**：展示分层认知卡片、独立审查 finding/处置状态和 Review Handoff 导航卡片
 - **Focus-style tool rendering**：内置工具（`read`、`bash`、`edit`、`write`、`grep`、`find`、`ls`）以单行 dim-text 显示工具调用，并隐藏结果预览
-- **Config UI**：`/config:global` 和 `/config:project` 打开固定 scope 的交互式配置界面，可管理模型/thinking 默认值、常用 settings（theme、transport、queue、retry、compaction、terminal/editor、shell/session、warnings），以及资源路径/source 数组（`extensions`、`skills`、`prompts`、`themes`、`packages`）。按 `Ctrl+U` 可在当前 scope unset 并回退到继承的 global 或内置默认值；`Esc` 用于返回或退出菜单。项目级模型变更会立即应用，同时恢复原来的全局默认模型。
+- **Config UI**：`/config:global` 和 `/config:project` 打开固定 scope 的交互式配置界面，可管理模型/thinking 默认值、Working notifications、常用 settings（theme、transport、queue、retry、compaction、terminal/editor、shell/session、warnings），以及资源路径/source 数组（`extensions`、`skills`、`prompts`、`themes`、`packages`）。按 `Ctrl+U` 可在当前 scope unset 并回退到继承的 global 或内置默认值；`Esc` 用于返回或退出菜单。项目级模型变更会立即应用，同时恢复原来的全局默认模型。
 
 自定义工具可以复用 `wow/renderer.ts` 中的共享 dim rendering 工具（`createFocusRenderCall`、`focusRenderResult`）。
 
@@ -325,10 +365,18 @@ wow/
 │   │   ├── shell.ts         # Sync command execution wrappers
 │   │   ├── safe.ts          # Read-only bash command safety checks
 │   │   ├── settings.ts      # Shared settings.json reader
+│   │   ├── path-text.ts     # UI-independent plain-text path shortening
 │   │   └── tips.ts          # Shared working-tip registry
 │   ├── locale/              # OS-locale 语言策略
 │   │   ├── index.ts         # 向 system prompt 添加 OS-locale 硬性语言指令
 │   │   └── tips.ts          # Locale working tips
+│   ├── notifications/       # Settled Working desktop notifications
+│   │   ├── index.ts         # Lifecycle policy and /notify:test
+│   │   ├── provider.ts      # Internal notification provider contracts
+│   │   ├── desktop.ts       # Windows/macOS/Linux/WSL desktop backends
+│   │   ├── context.ts       # Session/instance identity and notification content
+│   │   ├── focus.ts         # Shared terminal-focus state and parser
+│   │   └── settings.ts      # Defaults and project-over-global resolution
 │   ├── human-led-coding-workflow/ # ?/??/?!/?$/$ human-led workflow logic
 │   │   ├── index.ts         # Prefix routing, context injection, tool gates, state persistence
 │   │   ├── prompts.ts       # Byte-stable workflow prompts
@@ -353,6 +401,8 @@ wow/
 │   │   ├── editor.ts        # Composite editor
 │   │   ├── history-peek.ts  # Ctrl+R current-branch history search overlay
 │   │   ├── ask-panel.ts     # discuss :::ask structured-question overlay
+│   │   ├── instance-title.ts # Session/instance terminal title
+│   │   ├── terminal-focus.ts # Terminal focus protocol owner
 │   │   ├── tools.ts         # Focus-style built-in tool rendering overrides
 │   │   ├── widgets.ts       # Workflow status/todo presenters
 │   │   ├── tips.ts          # Wow TUI working tips

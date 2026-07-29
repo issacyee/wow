@@ -17,6 +17,12 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { ensureLocalDirectoryGitignore } from "../wow/gitignore.ts";
 import {
+  DEFAULT_MINIMUM_WORKING_DURATION_MS,
+  DEFAULT_NOTIFICATIONS_ENABLED,
+  normalizeMinimumWorkingDurationMs,
+  readNotificationSettings,
+} from "../notifications/settings.ts";
+import {
   Container,
   type Focusable,
   fuzzyFilter,
@@ -45,7 +51,7 @@ type TransportSetting = "auto" | "sse" | "websocket" | "websocket-cached";
 type ResourceField = "extensions" | "skills" | "prompts" | "themes" | "packages";
 type ResourceAction = "add" | "remove" | "clear" | "list";
 type KeybindingEditorAction = "replace" | "add" | "remove" | "disable" | "restore" | "back";
-type MainAction = "model" | "thinking" | "common" | "resources" | "keybindings" | "reload";
+type MainAction = "model" | "thinking" | "notifications" | "common" | "resources" | "keybindings" | "reload";
 
 interface SettingOption<T extends string = string> {
   value: T;
@@ -1261,7 +1267,7 @@ async function showThinkingSettings(scope: ConfigScope, pi: ExtensionAPI, ctx: E
   });
 }
 
-// ── Common settings ─────────────────────────────────────────────────────
+// ── Shared setting value helpers ────────────────────────────────────────
 
 function textValue(value: unknown, fallback = ""): string {
   return typeof value === "string" ? value : fallback;
@@ -1271,6 +1277,86 @@ function numericValue(value: unknown, fallback: number): string {
   return typeof value === "number" && Number.isFinite(value) ? String(value) : String(fallback);
 }
 
+// ── Wow notification settings ───────────────────────────────────────────
+
+function notificationItems(scope: ConfigScope, ctx: ExtensionCommandContext): SettingItem[] {
+  const settings = currentScopedSettings(scope, ctx);
+  const effective = readNotificationSettings(ctx.cwd);
+  const cv = (path: string[], effectiveValue: any) => scopedCurrentValue(scope, ctx.cwd, path, effectiveValue);
+  const minimumPath = ["wow", "notifications", "minimumWorkingDurationMs"];
+  const scopedMinimum = getPathValue(settings, minimumPath);
+  const prefillMinimum = scope === "project"
+    ? effective.minimumWorkingDurationMs
+    : DEFAULT_MINIMUM_WORKING_DURATION_MS;
+
+  return [
+    {
+      id: "wow.notifications.enabled",
+      label: "Working notifications",
+      description: "Send a desktop notification after a long agent run settles while the terminal is not known to be focused.",
+      currentValue: cv(["wow", "notifications", "enabled"], DEFAULT_NOTIFICATIONS_ENABLED),
+      values: ["true", "false"],
+    },
+    {
+      id: "wow.notifications.minimumWorkingDurationMs",
+      label: "Notification threshold",
+      description: "Minimum full Working duration in milliseconds before a desktop notification is eligible.",
+      currentValue: cv(minimumPath, DEFAULT_MINIMUM_WORKING_DURATION_MS),
+      submenu: (_current, done) => inputSubmenu(
+        "Minimum Working duration ms",
+        numericValue(scopedMinimum, prefillMinimum),
+        done,
+        ctx.ui.theme,
+      ),
+    },
+  ];
+}
+
+function parseNotificationValue(id: string, value: string): boolean | number | undefined {
+  if (id === "wow.notifications.enabled") return value === "true";
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+  const parsed = Number(trimmed);
+  if (!Number.isFinite(parsed)) return undefined;
+  return normalizeMinimumWorkingDurationMs(parsed);
+}
+
+function refreshNotificationListValue(scope: ConfigScope, ctx: ExtensionCommandContext, id: string, list: SettingsList): void {
+  const item = notificationItems(scope, ctx).find((candidate) => candidate.id === id);
+  if (item) list.updateValue(id, item.currentValue);
+}
+
+async function showNotificationSettings(scope: ConfigScope, ctx: ExtensionCommandContext): Promise<void> {
+  if (ctx.mode !== "tui") {
+    notify(ctx, "Notification settings UI requires TUI mode", "error");
+    return;
+  }
+  if (scope === "project" && !ensureProjectWritable(ctx)) return;
+
+  await showSettingsScreen(
+    ctx,
+    `${settingLabel(scope)} Notification Settings`,
+    notificationItems(scope, ctx),
+    async (id, newValue, list) => {
+      const value = parseNotificationValue(id, newValue);
+      if (value === undefined) {
+        refreshNotificationListValue(scope, ctx, id, list);
+        notify(ctx, `${id} requires a finite number of milliseconds.`, "warning");
+        return;
+      }
+      setScopedValue(scope, ctx.cwd, id.split("."), value);
+      refreshNotificationListValue(scope, ctx, id, list);
+      notify(ctx, `${id} saved.`, "info");
+    },
+    async (id, list) => {
+      setScopedValue(scope, ctx.cwd, id.split("."), undefined);
+      refreshNotificationListValue(scope, ctx, id, list);
+      notify(ctx, `${id} override cleared.`, "info");
+    },
+  );
+}
+
+// ── Common settings ─────────────────────────────────────────────────────
 
 function commonItems(scope: ConfigScope, ctx: ExtensionCommandContext): SettingItem[] {
   const settings = currentScopedSettings(scope, ctx);
@@ -1972,6 +2058,7 @@ async function showMainMenu(scope: ConfigScope, pi: ExtensionAPI, ctx: Extension
     const mainItems: SettingOption<MainAction>[] = [
       { value: "model", label: "Model", description: `Default model: ${currentModel} · Enter set · Ctrl+U unset` },
       { value: "thinking", label: "Thinking level", description: `Default thinking: ${currentThinking} · Enter set · Ctrl+U unset` },
+      { value: "notifications", label: "Notifications", description: "Desktop notice after long background Working cycles settle" },
       { value: "common", label: "Common settings", description: "Theme, transport, queues, retry, compaction, terminal, editor, shell, resources" },
       { value: "resources", label: "Resource paths", description: "extensions, skills, prompts, themes, packages" },
     ];
@@ -1992,6 +2079,9 @@ async function showMainMenu(scope: ConfigScope, pi: ExtensionAPI, ctx: Extension
         break;
       case "thinking":
         await showThinkingSettings(scope, pi, ctx);
+        break;
+      case "notifications":
+        await showNotificationSettings(scope, ctx);
         break;
       case "common":
         await showCommonSettings(scope, ctx);

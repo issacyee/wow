@@ -166,6 +166,60 @@ Registers command aliases via a declarative array in one extension, instead of c
 one file per alias. Currently provides `/exit` as an alias for the built-in `/quit`.
 Add new mappings by appending entries to the `COMMAND_MAPPINGS` array.
 
+### Working Completion Notifications — `/notify:test`
+
+Sends a native desktop notification when a full pi Working cycle settles and the
+terminal is not known to be focused. The timer spans automatic retries,
+auto-compaction recovery, and queued continuations, so one user task produces at
+most one notice. Runs shorter than 10 seconds and user-cancelled runs are ignored.
+
+Notifications identify the source without exposing assistant output. A typical
+completion contains the project, shortened path, Git branch, deterministic session
+label, process-instance label, and reason:
+
+```text
+Pi
+wow · S-A3F2 · I-7C9D
+Working completed · Waiting for your next action
+D:\workspace\ai\wow · main
+```
+
+`S-XXXX` remains stable when a session is resumed; `I-XXXX` distinguishes running
+pi processes and changes after restart. Wow mirrors both labels in the terminal/tab
+title as `π wow [S-A3F2 · I-7C9D]` so the corresponding instance is easy to locate.
+Notification clicks intentionally have no action.
+
+Backends are selected without an npm runtime dependency:
+
+- Windows: registered `EarendilWorks.Pi` Win32 identity and native `ToastGeneric`
+  banner through `powershell.exe`; a per-user **Pi Notifications** Start Menu
+  shortcut is installed lazily on first delivery
+- WSL: the same Windows host banner through `powershell.exe`
+- macOS: Notification Center through `osascript`
+- Linux: `notify-send`
+
+Supporting terminals report focus through terminal Focus Reporting. If focus is
+unavailable (for example through some tmux/SSH setups), Wow falls back to notifying
+to avoid missed completions. Delivery failures stay silent during normal work; use
+`/notify:test` to send a real test and report backend availability plus Windows
+identity, popup-request, and notifier-setting diagnostics.
+
+The feature is enabled by default. Project settings override global settings:
+
+```json
+{
+  "wow": {
+    "notifications": {
+      "enabled": true,
+      "minimumWorkingDurationMs": 10000
+    }
+  }
+}
+```
+
+Both values are editable under **Notifications** in `/config:global` and
+`/config:project`.
+
 ### Wow TUI — Unified Visual Shell
 
 `wow-tui` is the package's single visual compositor. It centralizes pure TUI behavior
@@ -176,13 +230,14 @@ It owns package-level singleton TUI resources:
 
 - **Footer compositor**: custom two-line footer with clickable CWD, git branch, model/thinking level, context usage bar, token/cache/cost/billing stats, and extension statuses
 - **Composite editor**: `π` top-border label, workflow prefix border colors, Chinese IME full-width prefix conversion (`？` `！` `￥` → `?` `!` `$`), and prompt-editor `Ctrl+R` History Peek
+- **Terminal identity and focus**: titles the tab as `π project [S-XXXX · I-XXXX]`, and tracks focus-in/focus-out for Working completion notification suppression while keeping escape-sequence ownership in the visual shell
 - **History Peek**: search the current branch's visible chat history while composing a prompt. Matches are highlighted, `Enter` pins nearby context above the editor for reference, `Ctrl+Q` clears the pinned peek from either the prompt editor or the search overlay, and no history text is inserted into the prompt or provider context
 - **Workflow presenter**: status indicator and todo widget based on workflow state
 - **Working tips carousel**: while the agent is working, concise usage tips rotate in the Working message (`Working 0ms • Tip: ...`) without entering the model context
 - **BTW message rendering**: custom rendering for `/btw:*` side-channel messages
 - **Code-intelligence rendering**: layered understanding cards, independent review findings/dispositions, and Review Handoff navigation cards
 - **Focus-style tool rendering**: built-in tools (`read`, `bash`, `edit`, `write`, `grep`, `find`, `ls`) render as single dim-text lines with hidden result previews
-- **Config UI**: `/config:global` and `/config:project` open scoped interactive settings UIs for model/thinking defaults, common settings (theme, transport, queues, retry, compaction, terminal/editor, shell/session, warnings), and resource path/source arrays (`extensions`, `skills`, `prompts`, `themes`, `packages`). Press `Ctrl+U` to unset entries at the current scope and fall back to inherited/global or built-in defaults; `Esc` returns or exits menus. Project model changes are applied immediately while restoring the previous global default model.
+- **Config UI**: `/config:global` and `/config:project` open scoped interactive settings UIs for model/thinking defaults, Working notifications, common settings (theme, transport, queues, retry, compaction, terminal/editor, shell/session, warnings), and resource path/source arrays (`extensions`, `skills`, `prompts`, `themes`, `packages`). Press `Ctrl+U` to unset entries at the current scope and fall back to inherited/global or built-in defaults; `Esc` returns or exits menus. Project model changes are applied immediately while restoring the previous global default model.
 
 Custom tools can reuse the same dim rendering via shared utilities from `wow/renderer.ts`
 (`createFocusRenderCall`, `focusRenderResult`).
@@ -373,10 +428,18 @@ wow/
 │   │   ├── shell.ts         # Sync command execution wrappers
 │   │   ├── safe.ts          # Read-only bash command safety checks
 │   │   ├── settings.ts      # Shared settings.json reader
+│   │   ├── path-text.ts     # UI-independent plain-text path shortening
 │   │   └── tips.ts          # Shared working-tip registry
 │   ├── locale/              # OS-locale language policy
 │   │   ├── index.ts         # Appends OS-locale hard language directive to system prompt
 │   │   └── tips.ts          # Locale working tips
+│   ├── notifications/       # Settled Working desktop notifications
+│   │   ├── index.ts         # Lifecycle policy and /notify:test
+│   │   ├── provider.ts      # Internal notification provider contracts
+│   │   ├── desktop.ts       # Windows/macOS/Linux/WSL desktop backends
+│   │   ├── context.ts       # Session/instance identity and notification content
+│   │   ├── focus.ts         # Shared terminal-focus state and parser
+│   │   └── settings.ts      # Defaults and project-over-global resolution
 │   ├── human-led-coding-workflow/ # ?/??/?!/?$/$ human-led workflow logic
 │   │   ├── index.ts         # Prefix routing, context injection, tool gates, state persistence
 │   │   ├── prompts.ts       # Byte-stable workflow prompts
@@ -401,6 +464,8 @@ wow/
 │   │   ├── editor.ts        # Composite editor
 │   │   ├── history-peek.ts  # Ctrl+R current-branch history search overlay
 │   │   ├── ask-panel.ts     # discuss :::ask structured-question overlay
+│   │   ├── instance-title.ts # Session/instance terminal title
+│   │   ├── terminal-focus.ts # Terminal focus protocol owner
 │   │   ├── tools.ts         # Focus-style built-in tool rendering overrides
 │   │   ├── widgets.ts       # Workflow status/todo presenters
 │   │   ├── tips.ts          # Wow TUI working tips
