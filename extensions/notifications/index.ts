@@ -9,11 +9,7 @@ import type { AssistantMessage } from "@earendil-works/pi-ai";
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { DesktopNotificationProvider } from "./desktop.ts";
 import { buildWorkingNotification, collectNotificationContext } from "./context.ts";
-import {
-  getTerminalFocusState,
-  getWorkingCancellationGeneration,
-  type TerminalFocusState,
-} from "./focus.ts";
+import { getWorkingCancellationGeneration } from "./focus.ts";
 import type { NotificationProvider } from "./provider.ts";
 import { readNotificationSettings } from "./settings.ts";
 
@@ -29,7 +25,6 @@ export interface NotificationDecisionInput {
   durationMs: number;
   minimumWorkingDurationMs: number;
   enabled: boolean;
-  focus: TerminalFocusState;
   outcome: WorkingOutcome;
 }
 
@@ -45,8 +40,7 @@ export function classifyWorkingOutcome(
 export function shouldNotifyWorkingCompletion(input: NotificationDecisionInput): boolean {
   if (!input.enabled) return false;
   if (input.outcome === "cancelled") return false;
-  if (input.durationMs < input.minimumWorkingDurationMs) return false;
-  return input.focus !== "focused";
+  return input.durationMs >= input.minimumWorkingDurationMs;
 }
 
 function notifyCommandResult(
@@ -125,7 +119,6 @@ export default function notificationsExtension(pi: ExtensionAPI): void {
       durationMs,
       minimumWorkingDurationMs: settings.minimumWorkingDurationMs,
       enabled: settings.enabled,
-      focus: getTerminalFocusState(),
       outcome,
     })) return;
 

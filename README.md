@@ -168,8 +168,8 @@ Add new mappings by appending entries to the `COMMAND_MAPPINGS` array.
 
 ### Working Completion Notifications — `/notify:test`
 
-Sends a native desktop notification when a full pi Working cycle settles and the
-terminal is not known to be focused. The timer spans automatic retries,
+Sends a native desktop notification when a full pi Working cycle settles,
+regardless of whether the terminal is focused. The timer spans automatic retries,
 auto-compaction recovery, and queued continuations, so one user task produces at
 most one notice. Runs shorter than 10 seconds and user-cancelled runs are ignored.
 
@@ -198,11 +198,11 @@ Backends are selected without an npm runtime dependency:
 - macOS: Notification Center through `osascript`
 - Linux: `notify-send`
 
-Supporting terminals report focus through terminal Focus Reporting. If focus is
-unavailable (for example through some tmux/SSH setups), Wow falls back to notifying
-to avoid missed completions. Delivery failures stay silent during normal work; use
-`/notify:test` to send a real test and report backend availability plus Windows
-identity, popup-request, and notifier-setting diagnostics.
+Terminal Focus Reporting remains installed for compatibility with the TUI input
+infrastructure, but reported focus state does not affect notification delivery.
+Delivery failures stay silent during normal work; use `/notify:test` to send a real
+test and report backend availability plus Windows identity, popup-request, and
+notifier-setting diagnostics.
 
 The feature is enabled by default. Project settings override global settings:
 
@@ -230,7 +230,7 @@ It owns package-level singleton TUI resources:
 
 - **Footer compositor**: custom two-line footer with clickable CWD, git branch, model/thinking level, context usage bar, token/cache/cost/billing stats, and extension statuses
 - **Composite editor**: `π` top-border label, workflow prefix border colors, Chinese IME full-width prefix conversion (`？` `！` `￥` → `?` `!` `$`), and prompt-editor `Ctrl+R` History Peek
-- **Terminal identity and focus**: titles the tab as `π project [S-XXXX · I-XXXX]`, and tracks focus-in/focus-out for Working completion notification suppression while keeping escape-sequence ownership in the visual shell
+- **Terminal identity and focus**: titles the tab as `π project [S-XXXX · I-XXXX]`, retains focus-in/focus-out reporting for TUI compatibility, and intercepts Working input for `Esc` cancellation detection while keeping escape-sequence ownership in the visual shell
 - **History Peek**: search the current branch's visible chat history while composing a prompt. Matches are highlighted, `Enter` pins nearby context above the editor for reference, `Ctrl+Q` clears the pinned peek from either the prompt editor or the search overlay, and no history text is inserted into the prompt or provider context
 - **Workflow presenter**: status indicator and todo widget based on workflow state
 - **Working tips carousel**: while the agent is working, concise usage tips rotate in the Working message (`Working 0ms • Tip: ...`) without entering the model context

@@ -143,7 +143,7 @@ BTW 使用独立 LLM 调用，并把 topic state 作为 custom entries 持久化
 
 ### Working 完成通知 — `/notify:test`
 
-当一次完整的 pi Working 周期真正 settled、且终端未被确认处于前台时，发送原生桌面通知。计时会跨越自动重试、auto-compaction recovery 和 queued continuations，因此一次用户任务最多通知一次。短于 10 秒的运行和用户主动取消的运行不会通知。
+当一次完整的 pi Working 周期真正 settled 时，无论终端处于前台还是后台，都会发送原生桌面通知。计时会跨越自动重试、auto-compaction recovery 和 queued continuations，因此一次用户任务最多通知一次。短于 10 秒的运行和用户主动取消的运行不会通知。
 
 通知会标明来源，但不会包含 AI 回复内容。典型完成通知如下：
 
@@ -163,7 +163,7 @@ D:\workspace\ai\wow · main
 - macOS：通过 `osascript` 发送 Notification Center 通知
 - Linux：调用 `notify-send`
 
-支持的终端会通过 Focus Reporting 上报前后台状态。如果无法获得焦点状态（例如部分 tmux/SSH 环境），Wow 会退化为发送通知，优先避免漏报。日常运行中通知失败会保持静默；使用 `/notify:test` 可实际发送测试通知，并报告 backend 可用性，以及 Windows identity、popup request 和 notifier setting 诊断。
+为兼容 TUI 输入基础设施，终端 Focus Reporting 仍会保持启用，但上报的焦点状态不会影响通知发送。日常运行中通知失败会保持静默；使用 `/notify:test` 可实际发送测试通知，并报告 backend 可用性，以及 Windows identity、popup request 和 notifier setting 诊断。
 
 功能默认启用，项目配置覆盖全局配置：
 
@@ -188,7 +188,7 @@ D:\workspace\ai\wow · main
 
 - **Footer compositor**：自定义两行 footer，包含可点击 CWD、git branch、model/thinking level、context usage bar、token/cache/cost/billing stats 和 extension statuses
 - **Composite editor**：`π` 顶部边框 label、workflow prefix 边框颜色、中文 IME 全角前缀转换（`？` `！` `￥` → `?` `!` `$`），以及 prompt editor 内的 `Ctrl+R` History Peek
-- **Terminal identity and focus**：把标签页标题设置为 `π project [S-XXXX · I-XXXX]`，并跟踪 focus-in/focus-out 以抑制前台 Working 完成通知；终端 escape-sequence 的所有权仍保留在视觉层
+- **Terminal identity and focus**：把标签页标题设置为 `π project [S-XXXX · I-XXXX]`，保留 focus-in/focus-out reporting 以兼容 TUI，并拦截 Working 输入以检测 `Esc` 取消；终端 escape-sequence 的所有权仍保留在视觉层
 - **History Peek**：在编写 prompt 时搜索当前 branch 的可见聊天历史。匹配内容会高亮，`Enter` 会把附近上下文 pin 到编辑器上方供参考，在 prompt editor 或 search overlay 内按 `Ctrl+Q` 可清除 pinned peek，并且不会把历史文本插入 prompt 或 provider context
 - **Workflow presenter**：基于 workflow state 展示 status indicator 和 todo widget
 - **Working tips carousel**：agent working 时在 Working message 中轮播精简使用提示（`Working 0ms • Tip: ...`），不会进入模型上下文
