@@ -3,7 +3,7 @@
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { Box, Text, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import { Box, truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import { linkPath } from "../wow/paths.ts";
 import type { TodoItem } from "../human-led-coding-workflow/plan.ts";
 import {
@@ -82,10 +82,15 @@ function linkInlineCode(text: string): string {
   });
 }
 
-function section(title: string, value: string, theme: any): string[] {
+function section(title: string, value: string, theme: any, width: number): string[] {
   if (!value.trim()) return [];
-  const body = value.split("\n").filter((line) => line.trim()).slice(0, 10).map(linkInlineCode);
-  return [theme.fg("accent", theme.bold(title)), ...body];
+  const wrapped = value
+    .split("\n")
+    .filter((line) => line.trim())
+    .slice(0, 10)
+    .map(linkInlineCode)
+    .flatMap((line) => wrapTextWithAnsi(line, width));
+  return [...wrapTextWithAnsi(theme.fg("accent", theme.bold(title)), width), ...wrapped];
 }
 
 export function registerWorkflowSummaryRendering(pi: ExtensionAPI): void {
@@ -97,10 +102,10 @@ export function registerWorkflowSummaryRendering(pi: ExtensionAPI): void {
       invalidate() { },
       render(width: number): string[] {
         const availableWidth = Math.max(1, width);
-        const header = theme.fg("success", theme.bold("Execution completed"));
-        const note = theme.fg("dim", "legacy workflow checklist; hidden from model context");
+        const header = wrapTextWithAnsi(theme.fg("success", theme.bold("Execution completed")), availableWidth);
+        const note = wrapTextWithAnsi(theme.fg("dim", "legacy workflow checklist; hidden from model context"), availableWidth);
         const todoLines = details.todoItems.map((item) => renderTodoLine(item, theme, availableWidth));
-        return [header, note, "", ...todoLines];
+        return [...header, ...note, "", ...todoLines];
       },
     });
 
@@ -114,38 +119,45 @@ export function registerWorkflowSummaryRendering(pi: ExtensionAPI): void {
     box.addChild({
       invalidate() { },
       render(width: number): string[] {
+        const inner = Math.max(1, width);
         const lines = [
-          theme.fg("success", theme.bold("Review Handoff")),
-          theme.fg("dim", "implementing-agent handoff; not independently reviewed; hidden from model context"),
+          ...wrapTextWithAnsi(theme.fg("success", theme.bold("Review Handoff")), inner),
+          ...wrapTextWithAnsi(theme.fg("dim", "implementing-agent handoff; not independently reviewed; hidden from model context"), inner),
           "",
-          ...section("Intent", content.intent, theme),
+          ...section("Intent", content.intent, theme, inner),
           "",
-          ...section("Behavioral changes", content.behavioralChanges, theme),
+          ...section("Behavioral changes", content.behavioralChanges, theme, inner),
           "",
-          ...section("Execution delta", content.executionDelta, theme),
+          ...section("Execution delta", content.executionDelta, theme, inner),
           "",
-          ...section("Risks and unknowns", content.risksAndUnknowns, theme),
+          ...section("Risks and unknowns", content.risksAndUnknowns, theme, inner),
           "",
-          ...section("Suggested review path", content.suggestedReviewPath, theme),
+          ...section("Suggested review path", content.suggestedReviewPath, theme, inner),
         ];
         if (details.interactingFiles.length > 0) {
-          lines.push("", theme.fg("warning", theme.bold("Existing worktree interactions")), ...details.interactingFiles.map((path) => `- ${linkPath(path, process.cwd())}`));
+          lines.push(
+            "",
+            ...wrapTextWithAnsi(theme.fg("warning", theme.bold("Existing worktree interactions")), inner),
+            ...details.interactingFiles.flatMap((path) => wrapTextWithAnsi(`- ${linkPath(path, process.cwd())}`, inner)),
+          );
         }
         if (expanded) {
           lines.push(
             "",
-            ...section("Impact surface", content.impactSurface, theme),
+            ...section("Impact surface", content.impactSurface, theme, inner),
             "",
-            ...section("Validation evidence", content.validationEvidence, theme),
+            ...section("Validation evidence", content.validationEvidence, theme, inner),
             "",
-            ...section("Modified files", content.modifiedFiles, theme),
+            ...section("Modified files", content.modifiedFiles, theme, inner),
             "",
-            ...section("Follow-up suggestions", content.followUpSuggestions, theme),
+            ...section("Follow-up suggestions", content.followUpSuggestions, theme, inner),
             "",
-            theme.fg("dim", details.attributionLimitations),
+            ...(details.attributionLimitations.trim()
+              ? wrapTextWithAnsi(details.attributionLimitations, inner).map((line) => theme.fg("dim", line))
+              : []),
             "",
-            theme.fg("accent", theme.bold("Workflow checklist")),
-            ...details.todoItems.map((item) => renderTodoLine(item, theme, Math.max(1, width))),
+            ...wrapTextWithAnsi(theme.fg("accent", theme.bold("Workflow checklist")), inner),
+            ...details.todoItems.map((item) => renderTodoLine(item, theme, inner)),
           );
         }
         return lines.filter((line, index, all) => line !== "" || all[index - 1] !== "");
