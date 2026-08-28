@@ -131,6 +131,7 @@ Examples:
 
 Behavior:
 - Chooses semantic prefixes such as `feat/`, `fix/`, `docs/`, `refactor/`, `test/`, or `chore/`
+- Adds the local creation date to generated suggestions, for example `feat/2025-02-28-login`; manually edited names are left unchanged
 - Infers and displays the start point (`main`, `develop`, `origin/main`, `HEAD`, etc.)
 - Supports `--from <startPoint>` with input-stage fuzzy branch completion; `--from=...` is treated as ordinary description text
 - Supports natural-language start point hints

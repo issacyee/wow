@@ -109,6 +109,7 @@ Pi packages 会通过 extensions 获得完整系统访问权限，因此安装�
 
 行为：
 - 自动选择语义前缀，例如 `feat/`、`fix/`、`docs/`、`refactor/`、`test/`、`chore/`
+- 自动建议会加入本机当地创建日期，例如 `feat/2025-02-28-login`；手动编辑后的名称保持不变
 - 推断并展示 start point（如 `main`、`develop`、`origin/main`、`HEAD`）
 - 支持 `--from <startPoint>`，并在输入阶段提供分支名模糊补全；`--from=...` 会被当作普通描述文本
 - 支持自然语言里的 start point 提示

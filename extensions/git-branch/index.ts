@@ -80,7 +80,7 @@ Branch name rules:
 - Choose the prefix from intent: new behavior -> feat, bug -> fix, docs -> docs, internal cleanup -> refactor, tests -> test, maintenance -> chore.
 - Keep it concise: usually 2-6 words after the prefix.
 - Do not include spaces, underscores, emoji, quotes, shell syntax, trailing punctuation, or AI attribution.
-- Do not include dates/timestamps. The caller handles conflicts.
+- Do not include dates/timestamps. The caller deterministically inserts its local date after the type prefix and handles conflicts.
 
 Start point rules:
 - If an explicit --from value is provided, use it exactly when valid.
@@ -508,6 +508,20 @@ function sanitizeBranchName(raw: string): string {
   return parts.join("/");
 }
 
+function localDatePrefix(date = new Date()): string {
+  const pad = (value: number) => String(value).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+}
+
+function formatGeneratedBranchName(raw: string, date = new Date()): string {
+  const parts = sanitizeBranchName(raw).split("/");
+  const [candidatePrefix, ...candidateSlugParts] = parts;
+  const prefix = ALLOWED_PREFIXES.includes(candidatePrefix) ? candidatePrefix : "feat";
+  const slugParts = ALLOWED_PREFIXES.includes(candidatePrefix) ? candidateSlugParts : parts;
+  const slug = slugParts.join("-") || "work";
+  return `${prefix}/${localDatePrefix(date)}-${slug}`;
+}
+
 function isValidBranchName(branchName: string): boolean {
   if (!branchName || branchName.startsWith("-") || branchName.includes("..")) return false;
   if (branchName === "HEAD" || branchName.endsWith("/")) return false;
@@ -803,9 +817,9 @@ async function handleGitBranch(pi: ExtensionAPI, args: string, ctx: ExtensionCom
   }
 
   const rawBranch = suggestion.branchName || fallbackBranchName(parsed.description);
-  let branchName = sanitizeBranchName(rawBranch);
+  let branchName = formatGeneratedBranchName(rawBranch);
   if (!isValidBranchName(branchName)) {
-    branchName = sanitizeBranchName(fallbackBranchName(parsed.description));
+    branchName = formatGeneratedBranchName(fallbackBranchName(parsed.description));
   }
 
   const suggestedStartPoint = explicitStartPoint ?? suggestion.startPoint;
