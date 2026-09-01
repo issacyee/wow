@@ -49,7 +49,7 @@ Pi packages 会通过 extensions 获得完整系统访问权限，因此安装�
 
 - **人主导控制**：普通输入保持自由；计划反馈必须使用 `?!`；执行使用 `$`，或在探讨已经足够明确时使用 `?$` 直接计划并执行
 - **只读探讨/规划/修正**：这些模式允许 `codegraph_*`、`read`、`grep`、`find`、`ls`、安全只读 `bash` 和 `webfetch`，并阻止 `edit`、`write` 和不安全命令
-- **对齐式探讨流程**：discuss 模式会提出同批互不依赖的澄清问题，并根据回答继续追问，直到高度确信已理解用户真实需求和目标；随后总结共同理解并给出方向，但不会在未使用 `??` 时写成计划。
+- **证据优先的对齐式探讨**：当需求包含可调查的事实背景时，discuss 模式会先按需只读调查相关本地代码、配置、文档、Git 状态和结构关系；仅在本地证据不足时查询必要的外部资料。提出影响决策且同批互不依赖的问题前，它会简要说明观察到的现状、与用户目标的差距以及仍然未知的事项；不会反问可自行查明的事实，也不会在没有关键未知时强行提问。它会根据回答继续调查和追问，直到高度确信已理解用户真实需求和目标，再提出方向，但不会在未使用 `??` 时写成计划。
 - **可审查计划结构**：计划包含 Goals、Background、Key Decisions、Non-goals、Implementation Steps、Acceptance Criteria、Verification 和 Risks，并以 `Ready to execute?` 结尾
 - **Review Handoff**：仅在完整执行成功后生成实现者交接材料，包含实现意图、行为变化、本次执行增量、既有工作区改动交互、影响范围、实际验证证据、风险/未知事项和建议人工审查路径；它明确不代表独立审查通过
 - **Prefix-cache friendly**：扩展不会修改 system prompt，不会切换 active tools，会从 provider context 过滤过期 workflow context，并把状态存储在 LLM context 外的 custom entries 中
