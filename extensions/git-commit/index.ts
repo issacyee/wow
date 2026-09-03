@@ -19,6 +19,9 @@ import * as os from "node:os";
 
 type CommitLanguage = "zh-CN" | "en";
 
+const STAGED_DIFF_MAX_BUFFER = 16 * 1024 * 1024;
+const STAGED_DIFF_TIMEOUT_MS = 30000;
+
 // ── System Prompt: balanced Conventional Commits style ──
 
 const BASE_SYSTEM_PROMPT = `You are a balanced Conventional Commits message generator. Follow these rules strictly.
@@ -166,14 +169,33 @@ async function handleGitCommit(
 
   // ── ③ Get diff ──
   ctx.ui.notify("Reading staged diff...", "info");
-  const diff = execOrNull("git diff --cached");
-  if (!diff) {
-    ctx.ui.notify("Empty diff. Files may be staged without changes.", "error");
+  const diffResult = execWithError("git diff --cached", {
+    timeout: STAGED_DIFF_TIMEOUT_MS,
+    maxBuffer: STAGED_DIFF_MAX_BUFFER,
+  });
+  if (diffResult.exitCode !== 0) {
+    if (diffResult.errorCode === "ENOBUFS") {
+      const limitMb = Math.round(STAGED_DIFF_MAX_BUFFER / 1024 / 1024);
+      ctx.ui.notify(`Staged diff exceeds the ${limitMb}MB read limit.`, "error");
+    } else if (diffResult.errorCode === "ETIMEDOUT") {
+      ctx.ui.notify("Timed out while reading staged diff.", "error");
+    } else {
+      const detail = diffResult.stderr || diffResult.errorCode || `exit code ${diffResult.exitCode}`;
+      ctx.ui.notify(`Failed to read staged diff: ${detail}`, "error");
+    }
     return;
   }
-  const files = execOrNull("git diff --cached --name-status") || "";
 
-  // Truncate extremely large diffs
+  const diff = diffResult.stdout;
+  if (!diff) {
+    ctx.ui.notify("Staged entries produced no diff content.", "error");
+    return;
+  }
+  const files = execOrNull("git diff --cached --name-status", {
+    maxBuffer: STAGED_DIFF_MAX_BUFFER,
+  }) || "";
+
+  // Truncate extremely large diffs before sending them to the LLM.
   const diffLines = diff.split("\n").length;
   let diffContent = diff;
   if (diffLines > 800) {
