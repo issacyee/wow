@@ -335,25 +335,13 @@ export function countAnsweredAskQuestions(questions: AskQuestion[], answers: Ask
 export function formatAskAnswers(questions: AskQuestion[], answers: AskAnswers): string {
   const useChinese = detectPrimaryLocale() === "zh";
   const lines = [useChinese ? "关于上面的问题，我的选择是：" : "For the questions above, my choices are:", ""];
-  let visibleIndex = 1;
-  let skipped = 0;
 
-  for (const question of questions) {
+  for (const [index, question] of questions.entries()) {
     const text = answerText(question, answers[question.id]);
-    if (!text) {
-      skipped++;
-      continue;
-    }
+    const answer = text ?? (useChinese ? "请你自行判断。" : "Please decide yourself.");
     lines.push(useChinese
-      ? `${visibleIndex}. ${question.question}：${text}`
-      : `${visibleIndex}. ${question.question}: ${text}`);
-    visibleIndex++;
-  }
-
-  if (skipped > 0) {
-    lines.push(useChinese
-      ? `${visibleIndex}. ${skipped === questions.length ? "这些问题请你自行判断。" : "其余未回答的问题请你自行判断。"}`
-      : `${visibleIndex}. ${skipped === questions.length ? "Please decide these questions yourself." : "Please decide the remaining unanswered questions yourself."}`);
+      ? `${index + 1}. ${question.question}：${answer}`
+      : `${index + 1}. ${question.question}: ${answer}`);
   }
 
   return lines.join("\n");

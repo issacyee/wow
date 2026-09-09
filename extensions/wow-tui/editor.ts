@@ -62,6 +62,14 @@ export class WowCompositeEditor extends CustomEditor {
     });
   }
 
+  setText(text: string): void {
+    super.setText(text);
+    // Pi's setEditorText() delegates to the active editor's setText() without
+    // scheduling a render. Ask-panel drafts are filled asynchronously after the
+    // keypress render has already run, so request one explicitly.
+    this.tui.requestRender();
+  }
+
   handleInput(data: string): void {
     if (!matchesKey(data, Key.ctrlAlt("a")) && this.onAskPanelInput?.(data)) {
       return;
