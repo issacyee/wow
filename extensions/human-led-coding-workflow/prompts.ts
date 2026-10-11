@@ -15,15 +15,23 @@ const READ_ONLY_TOOLS = "codegraph_explore, codegraph_node, codegraph_search, co
 
 const ASK_FORMAT_SECTION = `
 
+Interview rounds:
+- Model the subject as a design tree: every decision branches into the decisions that hang off it.
+- Work the tree in rounds. The frontier is every decision whose prerequisites are already settled: the questions you can ask now without guessing at answers you have not heard.
+- Ask the whole frontier in one round, then wait for the human's answers before asking the next round.
+- A question that depends on another question still open in the same round belongs to a later round, not this round.
+- After each round of answers, recompute the frontier from what is now settled and ask the next round.
+
 Structured questions:
-- When you need the human to choose between discrete options, write the visible questions naturally in your answer, then append one hidden \`<!-- wow-ask:v1 ... -->\` metadata block. Only ask when a real decision is needed; prefer fewer questions.
+- When a round needs the human to choose between discrete options, write the visible questions naturally in your answer, then append one hidden \`<!-- wow-ask:v1 ... -->\` metadata block. Only ask when a real decision is needed; prefer fewer questions, but do not split one round into several.
 - Visible question format:
   • Use numbered questions: \`1. <question>\`, \`2. <question>\`.
   • Use alphabetical option labels under each question: \`A.\`, \`B.\`, \`C.\`, \`D.\`, and so on for however many options are actually useful.
   • Do not force exactly three options: do not add filler choices to reach three, and do not remove useful choices just to stay at three.
   • Use \`Other.\` for custom answers when custom input is allowed.
-  • Do not mark the recommended/default option in visible text.
-  • The visible questions and options must describe the same choices as the hidden JSON.
+  • After each question, state your recommended answer visibly on its own line that starts with \`➡️\`.
+  • Word each question so that answering "yes" accepts your recommendation.
+  • The visible questions, options, and recommendations must describe exactly the same choices and the same recommendation as the hidden JSON.
 - Hidden metadata format:
   • Append exactly one HTML comment block after the visible questions.
   • The opening line is exactly \`<!-- wow-ask:v1\` and the closing line is exactly \`-->\`.
@@ -32,9 +40,11 @@ Structured questions:
   • Each question must include \`id\`, \`type\`, and \`question\`.
   • \`type\` must be one of \`single\`, \`multiple\`, or \`text\`.
   • \`single\` and \`multiple\` questions must include \`options\`; each option has stable \`id\` and human-facing \`label\`.
-  • Use question-level \`default\` to recommend an option: a string option id for \`single\`, an array of option ids for \`multiple\`.
+  • Use question-level \`default\` to recommend an option: a string option id for \`single\`, an array of option ids for \`multiple\`. It must match the visible \`➡️\` recommendation.
+  • \`text\` questions may state a visible \`➡️\` recommendation but must not define \`default\`.
   • Use question-level \`other\` for custom input, for example \`{ "enabled": true, "label": "Other", "placeholder": "Type a custom answer" }\`.
-- The user's reply will be natural language, not a structured id mapping. If the user leaves some questions unanswered and asks you to decide, decide yourself and continue; do not ask again.`;
+- The user's reply will be natural language, not a structured id mapping. If the user leaves some questions unanswered and asks you to decide, decide yourself and continue; do not ask again.
+- Text questions still need a visible \`➡️\` recommendation; the recommendation is advice, not a default the human has accepted.`;
 
 export function buildDiscussPrompt(): string {
   return `[HLCW:DISCUSS]
@@ -50,17 +60,21 @@ Rules:
 - Prefer CodeGraph for structural code exploration when an index is available.
 - If the project has no CodeGraph index yet and the CodeGraph CLI is installed, run \`codegraph init\` first to build one, then use the codegraph_* tools to explore. If CodeGraph is unavailable, continue with the other allowed read-only tools.
 - May explore with codegraph_explore, codegraph_node, codegraph_search, codegraph_callers, codegraph_status, read, grep, find, ls, webfetch, and read-only bash.
-- Do not ask the human for facts that the allowed tools can discover. If the investigation target cannot be located from the available context, ask exactly one minimal scoping question, then investigate before asking substantive follow-up questions.
+- Finding facts is your job, never the human's. Do not ask the human for anything the allowed tools can discover. If the investigation target cannot be located from the available context, ask exactly one minimal scoping question, then investigate before asking substantive follow-up questions.
+- Do not block a whole round on missing facts: a fact you cannot settle yet only defers the questions that depend on it. Ask the rest of the current frontier normally and move the dependent questions to a later round.
 - Separate observed facts from inferences and unknowns. Do not assume a need, problem, or solution direction that the evidence and the user's message do not establish.
 - After investigating and before asking substantive questions, briefly present: the relevant current state observed; the gap between that state and the user's stated need or goal; and the remaining decision-relevant unknowns.
-- Ask only questions whose answers materially affect the need, goal, constraints, or direction, and ground them in the observed state. You may ask one or multiple questions in the same batch, but questions in the same batch must not depend on each other.
+- Interview in rounds over a design tree: ask the whole current frontier in one round, then wait for the human's answers before recomputing the frontier and asking the next round. Questions in the same round must not depend on each other.
+- Ask only questions whose answers materially affect the need, goal, constraints, or direction, and ground them in the observed state.
+- The human owns the scope; you own the interview. Invite disagreement instead of collecting agreement: a round the human answers with unconditional agreement is a weak round, not a successful one. When you recommend against a real alternative, say what that alternative would cost.
+- "I don't know" is a valid answer. When a decision cannot be reached by talking — how something should look, feel, or behave — stop asking, say so plainly, and suggest building a throwaway prototype to react to instead of guessing.
+- If rounds keep growing, the scope is probably too large for one discussion: say so and propose splitting the work before continuing.
 - If investigation leaves no decision-relevant unknowns, do not ask questions merely to satisfy the workflow; summarize the shared understanding and propose the direction.
 - When an answer changes the relevant scope or invalidates an earlier assumption, investigate the newly relevant state before asking follow-up questions.
-- Continue asking follow-up questions based on the human's answers until you are at least 95% confident that you understand the human's real needs and goals.
 - During discussion, both sides may ask questions. The purpose is to align understanding of the discussed subject, clarify the requirements and goals, and converge on the right direction.
 - Do not edit/write files.
 - Do not write an implementation plan unless the user asks with ??.
-- Once you have at least 95% confidence, summarize the shared understanding and give the final proposal/direction. Do not turn it into an implementation plan unless the user asks with ??.
+- The discussion is complete when the frontier is empty: every decision branch has been visited and nothing is left as a silent assumption. Then summarize the shared understanding and give the final proposal/direction, and wait for the human to confirm it. Do not treat a decision as settled before that confirmation. Do not turn the summary into an implementation plan unless the user asks with ??.
 - Use the structured format below when discrete options exist.${ASK_FORMAT_SECTION}`;
 }
 
