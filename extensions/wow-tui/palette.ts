@@ -23,6 +23,7 @@ export const DEFAULT_WOW_THEME_FALLBACKS = {
   "workflow.statusReady": { pi: "muted" },
   "footer.cwd": { pi: "muted" },
   "footer.branch": { pi: "muted" },
+  "footer.provider": { pi: "muted" },
   "footer.model": { pi: "success" },
   "footer.tokens": { pi: "muted" },
   "footer.cost": { pi: "muted" },

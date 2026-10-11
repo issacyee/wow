@@ -187,7 +187,7 @@ D:\workspace\ai\wow · main
 
 它拥有包级别的 TUI 单例资源：
 
-- **Footer compositor**：自定义两行 footer，包含可点击 CWD、git branch、model/thinking level、context usage bar、token/cache/cost/billing stats 和 extension statuses
+- **Footer compositor**：自定义两行 footer，包含可点击 CWD、git branch、`model [provider] • thinking level`、context usage bar、token/cache/cost/billing stats 和 extension statuses
 - **Composite editor**：`π` 顶部边框 label、workflow prefix 边框颜色、中文 IME 全角前缀转换（`？` `！` `￥` → `?` `!` `$`），以及 prompt editor 内的 `Ctrl+R` History Peek
 - **Terminal identity and focus**：把标签页标题设置为 `π project [S-XXXX · I-XXXX]`，保留 focus-in/focus-out reporting 以兼容 TUI，并拦截 Working 输入以检测 `Esc` 取消；终端 escape-sequence 的所有权仍保留在视觉层
 - **History Peek**：在编写 prompt 时搜索当前 branch 的可见聊天历史。匹配内容会高亮，`Enter` 会把附近上下文 pin 到编辑器上方供参考，在 prompt editor 或 search overlay 内按 `Ctrl+Q` 可清除 pinned peek，并且不会把历史文本插入 prompt 或 provider context
@@ -222,7 +222,7 @@ Wow 专属颜色通过 pi theme 的可选 `vars` 条目定义，不会写入 pi 
 
 - Workflow borders：`wow.workflow.discussBorder`、`wow.workflow.planBorder`、`wow.workflow.reviseBorder`、`wow.workflow.executeBorder`
 - Workflow status：`wow.workflow.statusDiscuss`、`wow.workflow.statusPlan`、`wow.workflow.statusRevise`、`wow.workflow.statusExec`、`wow.workflow.statusReady`
-- Footer：`wow.footer.cwd`、`wow.footer.branch`、`wow.footer.model`、`wow.footer.tokens`、`wow.footer.cost`、`wow.footer.status`、`wow.footer.contextOk`、`wow.footer.contextWarn`、`wow.footer.contextDanger`
+- Footer：`wow.footer.cwd`、`wow.footer.branch`、`wow.footer.provider`、`wow.footer.model`、`wow.footer.tokens`、`wow.footer.cost`、`wow.footer.status`、`wow.footer.contextOk`、`wow.footer.contextWarn`、`wow.footer.contextDanger`
 
 可选 billing 显示目前支持 DeepSeek 官方 API 账户。当 active provider 是 `deepseek` 时，
 Wow 每 60 秒通过 DeepSeek `/user/balance` endpoint 刷新账户余额，并显示当前 session 中

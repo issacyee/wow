@@ -53,6 +53,28 @@ function renderContextPercent(theme: any, percent: number | null, contextWindow?
   return wowColor(theme, contextColorToken(percent))(` ${pct}%${windowLabel}`);
 }
 
+interface FooterModelInfo {
+  provider?: string;
+  id?: string;
+}
+
+/**
+ * Compose the footer's right-aligned model label as `model [provider] • thinking`,
+ * matching pi's own model selection list (`deepseek-flash [deepseek] · default`).
+ * The provider badge uses the muted `footer.provider` token so the model id stays
+ * the visual anchor; the thinking level keeps the `footer.model` color.
+ */
+export function renderModelDisplay(theme: any, model: FooterModelInfo | undefined, thinkingLevel?: string): string {
+  const modelName = model?.id || "no-model";
+  const nameDisplay = wowColor(theme, "footer.model")(modelName);
+  const providerDisplay = model?.provider ? wowColor(theme, "footer.provider")(` [${model.provider}]`) : "";
+  const levelDisplay = thinkingLevel && thinkingLevel !== "off"
+    ? wowColor(theme, "footer.model")(` • ${thinkingLevel}`)
+    : "";
+
+  return nameDisplay + providerDisplay + levelDisplay;
+}
+
 export function installFooter(pi: ExtensionAPI, ctx: ExtensionContext): void {
   if (!ctx.hasUI) return;
 
@@ -74,11 +96,7 @@ export function installFooter(pi: ExtensionAPI, ctx: ExtensionContext): void {
         const branch = footerData.getGitBranch();
         const branchDisplay = branch ? ` ${wowColor(theme, "footer.branch")(branch)}` : "";
 
-        const modelName = ctx.model?.id || "no-model";
-        const thinkingLevel = pi.getThinkingLevel();
-        const modelDisplay = thinkingLevel && thinkingLevel !== "off"
-          ? wowColor(theme, "footer.model")(`${modelName} • ${thinkingLevel}`)
-          : wowColor(theme, "footer.model")(modelName);
+        const modelDisplay = renderModelDisplay(theme, ctx.model, pi.getThinkingLevel());
 
         const line1Left = cwdDisplay + branchDisplay;
         const line1Right = modelDisplay;

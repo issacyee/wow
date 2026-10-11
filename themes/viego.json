@@ -33,6 +33,7 @@
     "wow.footer.cwd": "yellow",
     "wow.footer.branch": "purple",
     "wow.footer.model": "green",
+    "wow.footer.provider": "grey",
     "wow.footer.tokens": "turquoise",
     "wow.footer.cost": "yellow",
     "wow.footer.status": "grey",

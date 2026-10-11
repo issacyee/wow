@@ -229,7 +229,7 @@ from `package.json` disables these visuals while leaving workflow/cache/tool log
 
 It owns package-level singleton TUI resources:
 
-- **Footer compositor**: custom two-line footer with clickable CWD, git branch, model/thinking level, context usage bar, token/cache/cost/billing stats, and extension statuses
+- **Footer compositor**: custom two-line footer with clickable CWD, git branch, `model [provider] • thinking level`, context usage bar, token/cache/cost/billing stats, and extension statuses
 - **Composite editor**: `π` top-border label, workflow prefix border colors, Chinese IME full-width prefix conversion (`？` `！` `￥` → `?` `!` `$`), and prompt-editor `Ctrl+R` History Peek
 - **Terminal identity and focus**: titles the tab as `π project [S-XXXX · I-XXXX]`, retains focus-in/focus-out reporting for TUI compatibility, and intercepts Working input for `Esc` cancellation detection while keeping escape-sequence ownership in the visual shell
 - **History Peek**: search the current branch's visible chat history while composing a prompt. Matches are highlighted, `Enter` pins nearby context above the editor for reference, `Ctrl+Q` clears the pinned peek from either the prompt editor or the search overlay, and no history text is inserted into the prompt or provider context
@@ -271,7 +271,7 @@ another var name. Supported tokens:
 
 - Workflow borders: `wow.workflow.discussBorder`, `wow.workflow.planBorder`, `wow.workflow.reviseBorder`, `wow.workflow.executeBorder`
 - Workflow status: `wow.workflow.statusDiscuss`, `wow.workflow.statusPlan`, `wow.workflow.statusRevise`, `wow.workflow.statusExec`, `wow.workflow.statusReady`
-- Footer: `wow.footer.cwd`, `wow.footer.branch`, `wow.footer.model`, `wow.footer.tokens`, `wow.footer.cost`, `wow.footer.status`, `wow.footer.contextOk`, `wow.footer.contextWarn`, `wow.footer.contextDanger`
+- Footer: `wow.footer.cwd`, `wow.footer.branch`, `wow.footer.provider`, `wow.footer.model`, `wow.footer.tokens`, `wow.footer.cost`, `wow.footer.status`, `wow.footer.contextOk`, `wow.footer.contextWarn`, `wow.footer.contextDanger`
 
 Optional billing display currently supports official DeepSeek API accounts.
 When the active provider is `deepseek`, Wow refreshes the account balance every
