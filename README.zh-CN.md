@@ -196,7 +196,7 @@ D:\workspace\ai\wow · main
 - **BTW message rendering**：为 `/btw:*` side-channel messages 提供自定义渲染
 - **Code-intelligence rendering**：展示分层认知卡片、独立审查 finding/处置状态和 Review Handoff 导航卡片
 - **Focus-style tool rendering**：内置工具（`read`、`bash`、`edit`、`write`、`grep`、`find`、`ls`）以单行 dim-text 显示工具调用，并隐藏结果预览
-- **Config UI**：`/config:global` 和 `/config:project` 打开固定 scope 的交互式配置界面，可管理模型/thinking 默认值、Working notifications、常用 settings（theme、transport、queue、retry、compaction、terminal/editor、shell/session、warnings），以及资源路径/source 数组（`extensions`、`skills`、`prompts`、`themes`、`packages`）。按 `Ctrl+U` 可在当前 scope unset 并回退到继承的 global 或内置默认值；`Esc` 用于返回或退出菜单。项目级模型变更会立即应用，同时恢复原来的全局默认模型。
+- **Config UI**：`/config:global` 和 `/config:project` 打开固定 scope 的交互式配置界面，可管理模型/thinking 默认值、Working notifications、常用 settings（theme、transport、queue、retry、compaction、terminal/editor、shell/session、warnings），以及资源路径/source 数组（`extensions`、`skills`、`prompts`、`themes`、`packages`）。按 `Ctrl+U` 可在当前 scope unset 并回退到继承的 global 或内置默认值；`Esc` 用于返回或退出菜单。全局模型/thinking 选择会写入新 pi 会话使用的全局 settings；项目级选择会立即应用并保存为项目覆盖，启动时优先于全局值。
 
 自定义工具可以复用 `wow/renderer.ts` 中的共享 dim rendering 工具（`createFocusRenderCall`、`focusRenderResult`）。
 

@@ -178,7 +178,7 @@ A human-led coding workflow triggered by `?`/`??`/`?!`/`?$`/`$` input prefixes. 
 Unified visual shell and TUI compositor for this package. It centralizes pure visual features so logic extensions can be used without visual code.
 
 Responsibilities:
-- Registers `/config:global` and `/config:project` for scoped interactive settings management.
+- Registers `/config:global` and `/config:project` for scoped interactive settings management. Model and thinking selections persist to the selected scope: global edits write `defaultProvider`/`defaultModel`/`defaultThinkingLevel` for new sessions (pi's extension `setModel`/`setThinkingLevel` only affect the running session), while project edits are applied immediately and saved as project overrides.
 - Installs the two-line footer via `ctx.ui.setFooter()`.
 - Installs the composite editor via `ctx.ui.setEditorComponent()`.
 - Applies the editor `π` top-border label.

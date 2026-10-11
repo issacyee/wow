@@ -59,15 +59,6 @@ interface SettingOption<T extends string = string> {
   description?: string;
 }
 
-interface GlobalDefaultSnapshot {
-  defaultProvider: string | undefined;
-  hasDefaultProvider: boolean;
-  defaultModel: string | undefined;
-  hasDefaultModel: boolean;
-  defaultThinkingLevel: ThinkingLevel | undefined;
-  hasDefaultThinkingLevel: boolean;
-}
-
 const THINKING_LEVELS: ThinkingLevel[] = ["off", "minimal", "low", "medium", "high", "xhigh"];
 const TRANSPORTS: TransportSetting[] = ["auto", "sse", "websocket", "websocket-cached"];
 const QUEUE_MODES = ["one-at-a-time", "all"] as const;
@@ -75,8 +66,6 @@ const DEFAULT_PROJECT_TRUST_VALUES = ["ask", "always", "never"] as const;
 const DOUBLE_ESCAPE_ACTIONS = ["tree", "fork", "none"] as const;
 const TREE_FILTER_MODES = ["default", "no-tools", "user-only", "labeled-only", "all"] as const;
 const RESOURCE_FIELDS: ResourceField[] = ["extensions", "skills", "prompts", "themes", "packages"];
-const GLOBAL_WRITE_SETTLE_MS = 120;
-const GLOBAL_WRITE_TIMEOUT_MS = 1000;
 
 // ── Settings file helpers ────────────────────────────────────────────────
 
@@ -195,61 +184,6 @@ function setPathValue(settings: JsonObject, path: string[], value: any): void {
 
 function setScopedValue(scope: ConfigScope, cwd: string, path: string[], value: any): void {
   updateSettings(scope, cwd, (settings) => setPathValue(settings, path, value));
-}
-
-function snapshotGlobalDefaults(cwd: string): GlobalDefaultSnapshot {
-  const global = readSettings("global", cwd);
-  return {
-    defaultProvider: typeof global.defaultProvider === "string" ? global.defaultProvider : undefined,
-    hasDefaultProvider: Object.prototype.hasOwnProperty.call(global, "defaultProvider"),
-    defaultModel: typeof global.defaultModel === "string" ? global.defaultModel : undefined,
-    hasDefaultModel: Object.prototype.hasOwnProperty.call(global, "defaultModel"),
-    defaultThinkingLevel: THINKING_LEVELS.includes(global.defaultThinkingLevel) ? global.defaultThinkingLevel : undefined,
-    hasDefaultThinkingLevel: Object.prototype.hasOwnProperty.call(global, "defaultThinkingLevel"),
-  };
-}
-
-function restoreGlobalDefaults(cwd: string, snapshot: GlobalDefaultSnapshot): void {
-  updateSettings("global", cwd, (settings) => {
-    if (snapshot.hasDefaultProvider) settings.defaultProvider = snapshot.defaultProvider;
-    else delete settings.defaultProvider;
-
-    if (snapshot.hasDefaultModel) settings.defaultModel = snapshot.defaultModel;
-    else delete settings.defaultModel;
-
-    if (snapshot.hasDefaultThinkingLevel) settings.defaultThinkingLevel = snapshot.defaultThinkingLevel;
-    else delete settings.defaultThinkingLevel;
-  });
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-async function waitForGlobalWrite(predicate: () => boolean): Promise<void> {
-  const start = Date.now();
-  while (Date.now() - start < GLOBAL_WRITE_TIMEOUT_MS) {
-    if (predicate()) return;
-    await sleep(50);
-  }
-}
-
-async function restoreGlobalDefaultsAfterSideEffect(
-  cwd: string,
-  snapshot: GlobalDefaultSnapshot,
-  predicate: () => boolean,
-): Promise<void> {
-  await waitForGlobalWrite(predicate);
-  restoreGlobalDefaults(cwd, snapshot);
-  await sleep(GLOBAL_WRITE_SETTLE_MS);
-  restoreGlobalDefaults(cwd, snapshot);
-  setTimeout(() => {
-    try {
-      restoreGlobalDefaults(cwd, snapshot);
-    } catch {
-      // Best-effort race guard for pi's async global write side effect.
-    }
-  }, GLOBAL_WRITE_SETTLE_MS * 4);
 }
 
 function stringifyValue(value: any): string {
@@ -780,6 +714,13 @@ function clearDefaultThinking(scope: ConfigScope, cwd: string): void {
   setScopedValue(scope, cwd, ["defaultThinkingLevel"], undefined);
 }
 
+function persistDefaultModel(scope: ConfigScope, cwd: string, provider: string, id: string): void {
+  updateSettings(scope, cwd, (settings) => {
+    setPathValue(settings, ["defaultProvider"], provider);
+    setPathValue(settings, ["defaultModel"], id);
+  });
+}
+
 function notifyProjectModelOverrideForGlobal(scope: ConfigScope, ctx: ExtensionCommandContext): void {
   if (scope !== "global" || !ctx.isProjectTrusted()) return;
   try {
@@ -802,30 +743,26 @@ function notifyProjectThinkingOverrideForGlobal(scope: ConfigScope, ctx: Extensi
   }
 }
 
-async function applyModel(scope: ConfigScope, pi: ExtensionAPI, ctx: ExtensionCommandContext, model: Model<any>): Promise<void> {
+export async function applyModel(scope: ConfigScope, pi: ExtensionAPI, ctx: ExtensionCommandContext, model: Model<any>): Promise<void> {
   if (scope === "project" && !ensureProjectWritable(ctx)) return;
 
   if (scope === "global") {
+    // The extension setModel API only switches the running session; persist the
+    // global default explicitly so new pi sessions resolve it from settings.json.
     const ok = await pi.setModel(model);
     if (!ok) {
       notify(ctx, `No configured auth for ${modelLabel(model)}`, "error");
       return;
     }
+    persistDefaultModel("global", ctx.cwd, model.provider, model.id);
     notify(ctx, `Global default model set to ${modelLabel(model)}`, "info");
     notifyProjectModelOverrideForGlobal(scope, ctx);
     return;
   }
 
-  const snapshot = snapshotGlobalDefaults(ctx.cwd);
-  setScopedValue("project", ctx.cwd, ["defaultProvider"], model.provider);
-  setScopedValue("project", ctx.cwd, ["defaultModel"], model.id);
+  persistDefaultModel("project", ctx.cwd, model.provider, model.id);
 
   const ok = await pi.setModel(model);
-  await restoreGlobalDefaultsAfterSideEffect(ctx.cwd, snapshot, () => {
-    const global = readSettings("global", ctx.cwd);
-    return global.defaultProvider === model.provider && global.defaultModel === model.id;
-  });
-
   if (!ok) {
     notify(ctx, `Saved project model, but current session could not switch: missing auth for ${modelLabel(model)}`, "warning");
     return;
@@ -865,28 +802,21 @@ async function unsetModel(scope: ConfigScope, pi: ExtensionAPI, ctx: ExtensionCo
   notifyProjectModelOverrideForGlobal(scope, ctx);
 }
 
-async function applyThinking(scope: ConfigScope, pi: ExtensionAPI, ctx: ExtensionCommandContext, level: ThinkingLevel): Promise<void> {
+export async function applyThinking(scope: ConfigScope, pi: ExtensionAPI, ctx: ExtensionCommandContext, level: ThinkingLevel): Promise<void> {
   if (scope === "project" && !ensureProjectWritable(ctx)) return;
 
   if (scope === "global") {
+    // Persist the requested level explicitly; the extension API only applies it
+    // to the running session. Matches pi's own setThinkingLevel(level, { persist: true }).
     pi.setThinkingLevel(level);
+    setScopedValue("global", ctx.cwd, ["defaultThinkingLevel"], level);
     notify(ctx, `Global default thinking level set to ${level}`, "info");
     notifyProjectThinkingOverrideForGlobal(scope, ctx);
     return;
   }
 
-  const snapshot = snapshotGlobalDefaults(ctx.cwd);
   setScopedValue("project", ctx.cwd, ["defaultThinkingLevel"], level);
   pi.setThinkingLevel(level);
-  await sleep(GLOBAL_WRITE_SETTLE_MS);
-  restoreGlobalDefaults(ctx.cwd, snapshot);
-  setTimeout(() => {
-    try {
-      restoreGlobalDefaults(ctx.cwd, snapshot);
-    } catch {
-      // Best-effort race guard for pi's async global write side effect.
-    }
-  }, GLOBAL_WRITE_SETTLE_MS * 4);
   notify(ctx, `Project default thinking level set to ${level} and applied now`, "info");
 }
 
