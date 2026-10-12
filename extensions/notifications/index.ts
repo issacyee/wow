@@ -9,7 +9,6 @@ import type { AssistantMessage } from "@earendil-works/pi-ai";
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { DesktopNotificationProvider } from "./desktop.ts";
 import { buildWorkingNotification, collectNotificationContext } from "./context.ts";
-import { getWorkingCancellationGeneration } from "./focus.ts";
 import type { NotificationProvider } from "./provider.ts";
 import { readNotificationSettings } from "./settings.ts";
 
@@ -18,7 +17,6 @@ export type WorkingOutcome = "completed" | "failed" | "cancelled";
 interface WorkingCycle {
   startedAt: number;
   latestAssistant?: AssistantMessage;
-  cancellationGeneration: number;
 }
 
 export interface NotificationDecisionInput {
@@ -30,10 +28,10 @@ export interface NotificationDecisionInput {
 
 export function classifyWorkingOutcome(
   message: AssistantMessage | undefined,
-  userCancelled = false,
+  aborted: boolean,
 ): WorkingOutcome {
-  if (userCancelled || message?.stopReason === "aborted") return "cancelled";
-  if (!message || message.stopReason === "error") return "failed";
+  if (aborted) return "cancelled";
+  if (!message || message.stopReason === "error" || message.stopReason === "aborted") return "failed";
   return "completed";
 }
 
@@ -94,7 +92,6 @@ export default function notificationsExtension(pi: ExtensionAPI): void {
     if (ctx.mode !== "tui") return;
     workingCycle ??= {
       startedAt: Date.now(),
-      cancellationGeneration: getWorkingCancellationGeneration(),
     };
   });
 
@@ -106,15 +103,14 @@ export default function notificationsExtension(pi: ExtensionAPI): void {
     workingCycle.latestAssistant = event.message;
   });
 
-  pi.on("agent_settled", async (_event, ctx) => {
+  pi.on("agent_settled", async (event, ctx) => {
     const cycle = workingCycle;
     workingCycle = undefined;
     if (ctx.mode !== "tui" || !cycle) return;
 
     const settings = readNotificationSettings(ctx.cwd);
     const durationMs = Math.max(0, Date.now() - cycle.startedAt);
-    const userCancelled = getWorkingCancellationGeneration() !== cycle.cancellationGeneration;
-    const outcome = classifyWorkingOutcome(cycle.latestAssistant, userCancelled);
+    const outcome = classifyWorkingOutcome(cycle.latestAssistant, event.aborted);
     if (!shouldNotifyWorkingCompletion({
       durationMs,
       minimumWorkingDurationMs: settings.minimumWorkingDurationMs,

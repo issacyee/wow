@@ -6,7 +6,7 @@
 
 ## 安装
 
-Wow 是一个 [pi](https://pi.dev) package。Pi 是一个终端里的 coding agent/harness，可以通过 TypeScript extensions、skills、prompt templates 和 themes 扩展。Pi packages 会把这些资源打包起来，方便从 npm、git 或本地路径安装。
+Wow 是一个 [pi](https://pi.dev) package。Pi 是一个终端里的 coding agent/harness，可以通过 TypeScript extensions、skills、prompt templates 和 themes 扩展。Pi packages 会把这些资源打包起来，方便从 npm、git 或本地路径安装。**Wow 要求 pi 1.1.0 或更高的 1.x 版本**，不支持旧 API。
 
 如果你还没有安装 pi，请先安装：
 
@@ -48,7 +48,7 @@ Pi packages 会通过 extensions 获得完整系统访问权限，因此安装�
 | `$ <text>`  | 带额外约束执行当前 active plan                |
 
 - **人主导控制**：普通输入保持自由；计划反馈必须使用 `?!`；执行使用 `$`，或在探讨已经足够明确时使用 `?$` 直接计划并执行
-- **只读探讨/规划/修正**：这些模式允许 `codegraph_*`、`read`、`grep`、`find`、`ls`、安全只读 `bash` 和 `webfetch`，并阻止 `edit`、`write` 和不安全命令
+- **只读探讨/规划/修正**：这些模式允许 `codegraph_*`、`read`、`grep`、`find`、`ls`、安全只读 `bash`、`webfetch` 和完整 `codemode`；直接调用与嵌套 `tools.*` 调用使用同一权限 gate。写入、不安全命令、未知工具以及会激活工具的 `tool_search` 均被阻止。MCP 调用必须获得全局精确名称授权，单凭 `readOnlyHint` 不会放行。
 - **决策树上的分轮采访**：discuss 模式按轮次采访。它把主题当作决策树，一轮里问完当前 *frontier*（所有前置条件已定的决策），等人类回答后重新计算 frontier 再问下一轮；依赖同轮其他未决问题的问题会推迟到后续轮次。每个问题都带可见的 `➡️` 推荐，并且措辞保证回答“是”就等于接受推荐；可见的问题/选项/推荐必须与隐藏 JSON 块一致。范围由人类掌握，所以整轮无条件同意是弱轮次，"我不知道"也是有效回答。
 - **逃生舱与护栏**：缺失的事实时只推迟依赖它的问题，不会哽住整轮；靠谈话无法定论的问题（观感、手感、行为体验）会停止追问、转向可丢弃原型；轮次持续增长说明范围过大，会先提议拆分。当 frontier 为空——每个分支都已走过、没有静默假设——讨论结束，随后它会总结共识并等人类确认。
 - **证据优先的对齐式探讨**：当需求包含可调查的事实背景时，discuss 模式会先按需只读调查相关本地代码、配置、文档、Git 状态和结构关系；仅在本地证据不足时查询必要的外部资料。提出影响决策且同批互不依赖的问题前，它会简要说明观察到的现状、与用户目标的差距以及仍然未知的事项；不会反问可自行查明的事实，也不会在没有关键未知时强行提问，再提出方向，但不会在未使用 `??` 时写成计划。
@@ -56,6 +56,50 @@ Pi packages 会通过 extensions 获得完整系统访问权限，因此安装�
 - **Review Handoff**：仅在完整执行成功后生成实现者交接材料，包含实现意图、行为变化、本次执行增量、既有工作区改动交互、影响范围、实际验证证据、风险/未知事项和建议人工审查路径；它明确不代表独立审查通过
 - **Prefix-cache friendly**：扩展不会修改 system prompt，不会切换 active tools，会从 provider context 过滤过期 workflow context，并把状态存储在 LLM context 外的 custom entries 中
 - **UI-independent logic**：workflow 状态由 `state.ts` 暴露；编辑器颜色、status、todo widget 由 `wow-tui` 展示
+
+### 工具启用与只读 MCP 授权
+
+Wow 的 renderer 不会启用工具或替换原生工具定义。Pi 默认启用的内置工具是
+`read`、`bash`、`edit`、`write`；请使用官方 `defaultTools` 配置或 CLI `--tools`
+启用可选工具，而不是通过 workflow 模式切换工具：
+
+```json
+{
+  "defaultTools": ["+grep", "+find", "+ls", "+codemode"]
+}
+```
+
+单次运行可用 `pi --tools +grep,+find,+ls,+codemode`。没有 `+` 的普通名称会替换
+工具集合，而不是追加。MCP exposure 也可能自动启用 `codemode` 或 `tool_search`；
+Wow 不会启用它们。只读模式下用 Codemode 的 `searchTools()` / `describeTool()`
+发现工具，不会因此激活工具。
+
+仅全局 agent 目录里的 `settings.json`（通常为 `~/.pi/agent/settings.json`，
+或 `PI_CODING_AGENT_DIR` 指定目录）可授权 MCP 调用：
+
+```json
+{
+  "wow": {
+    "workflow": {
+      "readOnlyMcpTools": ["mcp__docs__search"]
+    }
+  }
+}
+```
+
+默认列表为空。必须使用 pi 展示的实际注册标识符，包括规范化名称或 hash 后缀；
+通配符和格式错误的值不会授权。项目 `.pi/settings.json` 不能扩大授权列表。
+工具还必须已注册：此列表不会连接或启用 server。共享资源工具
+`list_mcp_resources`、`list_mcp_resource_templates`、`read_mcp_resource`
+也需要分别列出精确名称；授权这些 helper 会覆盖所有已启用且非 hidden 的资源
+server，不是仅授权单个 server。授权前应核实实际行为和 server 身份：项目 MCP
+配置可替换同名全局 server。
+
+**权限边界：** Codemode 的 QuickJS sandbox 没有直接 filesystem、network 或 Node API。
+`tools.*` 仍经过 Wow gate，但完整 `models.*` 保持可用：`models.classify()` 和
+`models.generateImages()` 不发出 `tool_call`，可将数据发送给 provider、产生费用，
+并生成临时图像文件。只读模式是工具权限策略，不是网络、数据披露、费用或 OS sandbox；
+这些模型调用边界是有意接受的。
 
 ### Code Intelligence — `/understand` 与 `/review`
 
@@ -146,7 +190,7 @@ BTW 使用独立 LLM 调用，并把 topic state 作为 custom entries 持久化
 
 ### Working 完成通知 — `/notify:test`
 
-当一次完整的 pi Working 周期真正 settled 时，无论终端处于前台还是后台，都会发送原生桌面通知。计时会跨越自动重试、auto-compaction recovery 和 queued continuations，因此一次用户任务最多通知一次。短于 10 秒的运行和用户主动取消的运行不会通知。
+当一次完整的 pi Working 周期真正 settled 时，无论终端处于前台还是后台，都会发送原生桌面通知。计时会跨越自动重试、auto-compaction recovery 和 queued continuations，因此一次用户任务最多通知一次。短于 10 秒的运行和用户主动取消的运行不会通知。取消由 pi 原生 `agent_settled.aborted` 判定，包括 SDK/RPC abort，不再根据原始 `Esc` 输入或仅凭最后一条 assistant message 推断。
 
 通知会标明来源，但不会包含 AI 回复内容。典型完成通知如下：
 
@@ -191,16 +235,17 @@ D:\workspace\ai\wow · main
 
 - **Footer compositor**：自定义两行 footer，包含可点击 CWD、git branch、`model [provider] • thinking level`、context usage bar、token/cache/cost/billing stats 和 extension statuses
 - **Composite editor**：`π` 顶部边框 label、workflow prefix 边框颜色、中文 IME 全角前缀转换（`？` `！` `￥` → `?` `!` `$`），以及 prompt editor 内的 `Ctrl+R` History Peek
-- **Terminal identity and focus**：把标签页标题设置为 `π project [S-XXXX · I-XXXX]`，保留 focus-in/focus-out reporting 以兼容 TUI，并拦截 Working 输入以检测 `Esc` 取消；终端 escape-sequence 的所有权仍保留在视觉层
+- **Terminal identity and focus**：把标签页标题设置为 `π project [S-XXXX · I-XXXX]`，保留 focus-in/focus-out reporting 以兼容 TUI；取消判断由 pi 原生生命周期负责
 - **History Peek**：在编写 prompt 时搜索当前 branch 的可见聊天历史。匹配内容会高亮，`Enter` 会把附近上下文 pin 到编辑器上方供参考，在 prompt editor 或 search overlay 内按 `Ctrl+Q` 可清除 pinned peek，并且不会把历史文本插入 prompt 或 provider context
 - **Workflow presenter**：基于 workflow state 展示 status indicator 和 todo widget
 - **Working tips carousel**：agent working 时在 Working message 中轮播精简使用提示（`Working 0ms • Tip: ...`），不会进入模型上下文
 - **BTW message rendering**：为 `/btw:*` side-channel messages 提供自定义渲染
 - **Code-intelligence rendering**：展示分层认知卡片、独立审查 finding/处置状态和 Review Handoff 导航卡片
-- **Focus-style tool rendering**：内置工具（`read`、`bash`、`edit`、`write`、`grep`、`find`、`ls`）以单行 dim-text 显示工具调用，并隐藏结果预览
+- **Focus-style tool rendering**：内置工具（`read`、`bash`、`edit`、`write`、`grep`、`find`、`ls`）以单行 dim-text 显示调用，并隐藏成功结果预览。仅通过 renderer resolver 定制展示，保留原生执行、schema、structured results、prompt metadata 和工具启用状态；展开/错误输出委托原生 renderer，保留 `outputPad` 和 timing
 - **Config UI**：`/config:global` 和 `/config:project` 打开固定 scope 的交互式配置界面，可管理模型/thinking 默认值、Working notifications、常用 settings（theme、transport、queue、retry、compaction、terminal/editor、shell/session、warnings），以及资源路径/source 数组（`extensions`、`skills`、`prompts`、`themes`、`packages`）。按 `Ctrl+U` 可在当前 scope unset 并回退到继承的 global 或内置默认值；`Esc` 用于返回或退出菜单。全局模型/thinking 选择会写入新 pi 会话使用的全局 settings；项目级选择会立即应用并保存为项目覆盖，启动时优先于全局值。
 
-自定义工具可以复用 `wow/renderer.ts` 中的共享 dim rendering 工具（`createFocusRenderCall`、`focusRenderResult`）。
+自定义工具通过 `wow-tui` 的 renderer resolution 和 `wow/renderer.ts` 共享工具
+（`createFocusRenderCall`、`focusRenderResult`）使用相同 dim rendering，逻辑扩展不安装 renderer。
 
 #### Viego Theme and Wow Theme Variables
 
@@ -306,7 +351,7 @@ Commands：
 | `html.ts`     | `convertHTMLToMarkdown`, `extractTextFromHTML`, `stripTags`, `isRasterImage`, `STRIP_TAGS`                                          | webfetch                          |
 | `shell.ts`    | `execOrNull`, `execWithError`                                                                                                       | git-commit                        |
 | `safe.ts`     | `isSafeCommand`                                                                                                                     | human-led-coding-workflow         |
-| `settings.ts` | `readWowSetting`                                                                                                                    | shared settings consumers         |
+| `settings.ts` | `readWowSetting`, `readGlobalWowSetting`                                                                                            | shared settings / global permissions |
 | `tips.ts`     | `registerWowTips`, `getWowTips`, `clearWowTips`                                                                                     | feature tips, wow-tui working     |
 
 可以直接通过相对路径导入各 sub-module：
@@ -383,6 +428,7 @@ wow/
 │   ├── human-led-coding-workflow/ # ?/??/?!/?$/$ human-led workflow logic
 │   │   ├── index.ts         # Prefix routing, context injection, tool gates, state persistence
 │   │   ├── prompts.ts       # Byte-stable workflow prompts
+│   │   ├── permissions.ts   # Shared direct/nested tool gates and global MCP authorization
 │   │   ├── plan.ts          # Plan detection, extraction, [DONE:n] tracking
 │   │   ├── ask.ts           # discuss :::ask block parser, answer formatter, panel trigger singleton
 │   │   ├── state.ts         # UI-independent workflow state store

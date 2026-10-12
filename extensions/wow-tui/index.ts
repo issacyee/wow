@@ -28,7 +28,6 @@ import { registerPiNativeTips } from "./pi-tips.ts";
 import { registerFocusToolRendering } from "./tools.ts";
 import {
   installTerminalFocusReporting,
-  setTerminalFocusWorking,
   uninstallTerminalFocusReporting,
 } from "./terminal-focus.ts";
 import { registerWowTuiTips } from "./tips.ts";
@@ -142,17 +141,6 @@ export default function wowTuiExtension(pi: ExtensionAPI): void {
       unsubscribeCodeIntelligence = subscribeCodeIntelligence(refreshCodeIntelligence);
       refreshCodeIntelligence();
     }
-  });
-
-  pi.on("agent_start", async (_event, ctx) => {
-    if (ctx.mode === "tui") setTerminalFocusWorking(true);
-  });
-
-  // Keep this handler registered after the notifications extension in package
-  // load order so notification policy reads the completed Working focus state
-  // before the visual shell clears its cancellation-tracking flag.
-  pi.on("agent_settled", async (_event, ctx) => {
-    if (ctx.mode === "tui") setTerminalFocusWorking(false);
   });
 
   pi.on("session_shutdown", async (_event, ctx) => {

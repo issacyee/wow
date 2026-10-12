@@ -34,6 +34,7 @@ export {
 
 export {
   readWowSetting,
+  readGlobalWowSetting,
 } from "./settings.ts";
 
 export {

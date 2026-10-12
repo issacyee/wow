@@ -9,7 +9,7 @@
  * meaningful changes. No AI attribution, no emoji, no fluff.
  */
 
-import { complete, type Message } from "@earendil-works/pi-ai";
+import { complete, type Message } from "@earendil-works/pi-ai/compat";
 import { type ExtensionAPI, type ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { execOrNull, execWithError } from "../wow/shell.ts";
 import { registerGitCommitTips } from "./tips.ts";

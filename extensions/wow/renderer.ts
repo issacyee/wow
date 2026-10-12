@@ -183,11 +183,12 @@ export function createFocusRenderCall(name: string) {
   return function focusRenderCall(
     args: Record<string, any>,
     theme: any,
-    _context?: any,
+    context?: any,
   ): AdaptiveToolLine {
     return new AdaptiveToolLine(
       (width) => buildFocusLine(name, args, width, true),
       (text) => theme.fg("dim", text),
+      context?.outputPad ?? DEFAULT_PADDING_X,
     );
   };
 }
@@ -199,11 +200,12 @@ export function createFocusRenderCall(name: string) {
 export function focusRenderCall(
   args: Record<string, any>,
   theme: any,
-  _context?: any,
+  context?: any,
 ): AdaptiveToolLine {
   return new AdaptiveToolLine(
     (width) => buildFocusLine(undefined, args, width, false),
     (text) => theme.fg("dim", text),
+    context?.outputPad ?? DEFAULT_PADDING_X,
   );
 }
 
@@ -214,6 +216,12 @@ function extractTextResult(result: any): string {
     .map((item: any) => item.text)
     .join("\n")
     .trimEnd();
+}
+
+class FocusResultText extends Text {
+  override render(width: number): string[] {
+    return super.render(Math.max(1, width)).map((line) => truncateToWidth(line, Math.max(0, width), ""));
+  }
 }
 
 /**
@@ -232,9 +240,10 @@ export function focusRenderResult(
   const output = extractTextResult(result);
   if (!output) return new Container();
 
-  const text = context?.lastComponent instanceof Text
+  const text = context?.lastComponent instanceof FocusResultText
     ? context.lastComponent
-    : new Text("", 0, 0);
+    : new FocusResultText("", 0, 0);
+  text.setPaddingX(context?.outputPad ?? DEFAULT_PADDING_X);
   const styledOutput = output
     .split("\n")
     .map((line) => theme.fg("toolOutput", line))

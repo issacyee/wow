@@ -1,6 +1,7 @@
 # Wow — Foundational AI Workflow pi Package
 
 A pi package bundling essential features for daily AI coding workflows.
+Requires pi 1.1.0 or later in the 1.x series; no legacy API fallback.
 
 ## Structure
 
@@ -35,6 +36,7 @@ wow/
 │   ├── human-led-coding-workflow/ # ?/??/?!/?$/$ human-led coding workflow logic
 │   │   ├── index.ts         # Prefix routing, context injection, tool gates, state persistence
 │   │   ├── prompts.ts       # Byte-stable discuss/plan/revise/execute prompts
+│   │   ├── permissions.ts   # Shared direct/nested gates and global MCP authorization
 │   │   ├── plan.ts          # Plan detection, extraction, [DONE:n] tracking
 │   │   ├── ask.ts           # discuss :::ask block parser, answer formatter, panel trigger singleton
 │   │   ├── state.ts         # UI-independent workflow state store
@@ -108,9 +110,10 @@ and other technical content use English.
 - Extension runtime dependencies (peerDependencies):
   - `@earendil-works/pi-coding-agent` — extension API, tool factories, custom editor
   - `@earendil-works/pi-agent-core` — agent message types
-  - `@earendil-works/pi-ai` — LLM completion API (`complete`, message types)
+  - `@earendil-works/pi-ai` — message/model types; standalone `complete` from `@earendil-works/pi-ai/compat`
   - `@earendil-works/pi-tui` — TUI components (`Text`, `Container`), used by `wow-tui` and tool renderers
 - Run `/reload` or restart pi after editing extensions.
+- **Renderer-only customization**: use `pi.registerToolRenderer()` in `wow-tui`; do not re-register native tools or wrap execution to change presentation. Preserve schemas, output schemas, structured results, prompt metadata, activation, `outputPad`, and native `durationMs`. Optional tools are enabled through official `defaultTools` / `--tools`, never by renderers.
 - **Shared utilities** live in `extensions/wow/` — import from there, don't duplicate.
 - **Visual shell boundary**: `extensions/wow-tui/` is the only package extension that should own visual composition: singleton TUI resources (`ctx.ui.setFooter()`, `ctx.ui.setEditorComponent()`, status/widgets), package-wide tool rendering overrides, and custom message renderers. Logic extensions should expose state, types, commands, hooks, and behavior, not visual presentation.
 - Logic extensions must not import runtime TUI components from `@earendil-works/pi-tui` (`Text`, `Box`, `Container`, etc.) or call `pi.registerMessageRenderer()` / define tool `renderCall` or `renderResult`. Feature-specific renderers belong in `extensions/wow-tui/` and should consume exported state/types from logic extensions. Type-only imports for command completions are allowed when there is no coding-agent type export.
@@ -134,7 +137,7 @@ Sub-modules:
 - **html.ts** — `convertHTMLToMarkdown()`, `extractTextFromHTML()`, `stripTags()`, `isRasterImage()`, `STRIP_TAGS`. AST-based HTML conversion via node-html-markdown.
 - **shell.ts** — `execOrNull()`, `execWithError()`. Synchronous command execution wrappers with error handling.
 - **safe.ts** — `isSafeCommand()`. Shared read-only bash allowlist used by workflow gates.
-- **settings.ts** — `readWowSetting()`. Shared settings.json reader (project-then-global resolution, never throws) used by logic extensions to read custom Wow keys without importing TUI code.
+- **settings.ts** — `readWowSetting()` resolves project-then-global; `readGlobalWowSetting()` reads agent-directory settings only for authorization. Both never throw and keep logic independent of TUI.
 - **git.ts** — safe spawn-based read-only Git worktree collection, execution snapshots, local-change fingerprints, and dependency hashing used by HLCW and code-intelligence.
 - **tips.ts** — `registerWowTips()`, `getWowTips()`, `clearWowTips()`. Shared UI-only working-tip registry used by feature extensions and `wow-tui`.
 
@@ -148,7 +151,7 @@ Sends native desktop notifications after a complete Working cycle settles, regar
 
 Notification content is deterministic and excludes assistant output: project, shortened path, Git branch when available, a session-stable `S-XXXX`, a process-stable `I-XXXX`, and completed/failed next-action text. `wow-tui/instance-title.ts` mirrors those labels in `π project [S-XXXX · I-XXXX]` so the source terminal can be located. Notification clicks intentionally do nothing.
 
-The internal `NotificationProvider` contract separates lifecycle policy from delivery. The Windows/WSL backend uses `powershell.exe`, a per-user `EarendilWorks.Pi` AppUserModelID/Start Menu shortcut, `ToastGeneric`, and explicit `SuppressPopup=false`; macOS uses `osascript`, and Linux uses `notify-send`. Normal delivery failures are silent; `/notify:test` reports backend availability plus Windows identity/popup/notifier diagnostics. `wow.notifications.enabled` defaults to `true`; both settings resolve project-over-global and are editable through the Wow config UI. Terminal Focus Reporting remains installed for TUI compatibility but does not affect notification delivery. Protocol ownership belongs to `wow-tui/terminal-focus.ts`; shared focus state remains UI-independent in `notifications/focus.ts`. Working input interception also records direct `Esc` cancellation gestures.
+The internal `NotificationProvider` contract separates lifecycle policy from delivery. The Windows/WSL backend uses `powershell.exe`, a per-user `EarendilWorks.Pi` AppUserModelID/Start Menu shortcut, `ToastGeneric`, and explicit `SuppressPopup=false`; macOS uses `osascript`, and Linux uses `notify-send`. Normal delivery failures are silent; `/notify:test` reports backend availability plus Windows identity/popup/notifier diagnostics. `wow.notifications.enabled` defaults to `true`; both settings resolve project-over-global and are editable through the Wow config UI. Terminal Focus Reporting remains installed for TUI compatibility but does not affect notification delivery. Protocol ownership belongs to `wow-tui/terminal-focus.ts`; shared focus state remains UI-independent in `notifications/focus.ts`. Cancellation is authoritative from `agent_settled.aborted`, including SDK/RPC aborts, not raw `Esc` interception or the last assistant message alone.
 
 ### human-led-coding-workflow
 
@@ -170,7 +173,9 @@ A human-led coding workflow triggered by `?`/`??`/`?!`/`?$`/`$` input prefixes. 
 - **Escape hatches**: missing facts only defer the questions that depend on them instead of stalling the whole round; questions that talking cannot settle (how something should look, feel, or behave) stop the interview in favor of a throwaway prototype; rounds that keep growing mean the scope is too large, so the model proposes splitting the work first. The discussion is complete when the frontier is empty — every decision branch visited, nothing left as a silent assumption — and the model then summarizes the shared understanding, waits for the human to confirm it, and does not turn it into a plan unless the user asks with `??`.
 - **Evidence-first aligned discuss flow**: when the request has investigable factual context, discuss mode must first perform proportional read-only research into relevant local code, configuration, documentation, Git state, and structural relationships; dependency documentation or external sources are used only when local evidence is insufficient and the external fact materially affects the discussion. If the investigation target cannot be located, it may ask exactly one minimal scoping question first. Before asking substantive, non-dependent question batches, it briefly presents the observed current state, the gap to the human's goal, and the remaining decision-relevant unknowns. It never asks for facts the allowed tools can discover, does not force questions when no such unknown remains, and re-investigates when an answer changes scope or invalidates an assumption.
 - **Structured discuss questions**: in discuss mode, when discrete decisions are needed the model writes visible numbered questions with lettered options and a visible `➡️` recommendation, then appends one hidden `<!-- wow-ask:v1 ... -->` metadata block (with id, single/multiple/text type, `default` matching the visible recommendation, optional `hint`, optional custom-answer toggle). At turn end the extension parses that block and, in TUI mode, opens an overlay panel so the human can pick the default with Enter, choose another, type a custom answer, or skip. The selected answers are filled into the editor as a `? [Discuss answers]` message (not auto-sent) so the human can append notes, switch the prefix (`?`/`??`/`?$`/none), and send — preserving the `? → ? → ?? → $` or `? → ?$` workflow continuity. Skipped items are marked `(skipped — 你自行判断决定)` and the model decides itself.
-- Discuss/plan/revise modes allow CodeGraph query tools, `read`, `grep`, `find`, `ls`, `webfetch`, and safe read-only `bash`; they block `edit`, `write`, unsafe bash, and unrelated tools.
+- Discuss/plan/revise modes allow CodeGraph query tools, `read`, `grep`, `find`, `ls`, `webfetch`, safe read-only `bash`, and full `codemode`. `permissions.ts` applies the same `tool_call` gate to direct and nested `tools.*` calls; writes, unsafe bash, unknown tools, and `tool_search` (activation changes) are blocked.
+- MCP authorization reads global `wow.workflow.readOnlyMcpTools` only, defaults to empty, and requires exact registered names. Project settings, wildcards, and `readOnlyHint` do not authorize. Shared resource helpers (`list_mcp_resources`, `list_mcp_resource_templates`, `read_mcp_resource`) require explicit entries and cover all enabled non-hidden resource servers. Verify server identity too: project MCP configuration can replace same-name global servers.
+- Full Codemode remains enabled when selected by pi; use `searchTools()` / `describeTool()` for discovery. Its sandbox has no direct Node/filesystem/network access, but `models.classify()` and `models.generateImages()` bypass `tool_call`, can disclose data to providers, incur costs, and write temporary image output. These are accepted boundaries: read-only is a tool policy, not a network/cost/OS sandbox.
 - Prefix-cache safety is a hard requirement: the extension never mutates the system prompt, never switches active tools, registers no dynamic tools, filters stale workflow context messages from provider context, and persists state via custom entries outside LLM context.
 - State is managed by `state.ts` and restored from `human-led-coding-workflow` custom entries on `session_start`.
 - TUI presentation for editor colors, status, and todo widgets is handled by `wow-tui`.
@@ -186,11 +191,11 @@ Responsibilities:
 - Applies the editor `π` top-border label.
 - Applies workflow prefix border colors and Chinese IME prefix conversion.
 - Provides prompt-editor `Ctrl+R` History Peek for current-branch visible chat history search, match highlighting, `Enter` pinned nearby context, and `Ctrl+Q` pinned peek clearing from either the prompt editor or search overlay without inserting history into the prompt or provider context.
-- Owns session/instance terminal titles plus terminal Focus Reporting enable/disable for TUI compatibility and Working input interception for direct `Esc` cancellation detection; focus state does not affect notification delivery.
+- Owns session/instance terminal titles plus terminal Focus Reporting enable/disable for TUI compatibility; focus state does not affect notification delivery. Native lifecycle events own cancellation.
 - Presents workflow status and todo widgets by subscribing to workflow state.
 - Rotates feature-owned usage tips in the Working message without writing them to session or provider context.
-- Re-registers built-in tools with focus-style minimal rendering.
-- Installs focus-style rendering options for custom tools such as webfetch and CodeGraph.
+- Registers renderer-only resolvers for focus-style built-in presentation, delegating expanded/error output to native renderers without changing tool definitions or activation.
+- Resolves focus-style renderers for custom tools such as webfetch and CodeGraph; logic tools expose no render-option setters.
 - Registers custom message renderers such as BTW side-channel message rendering.
 
 Removing `./extensions/wow-tui/index.ts` from `package.json` disables these package visuals while leaving logic extensions functional.
@@ -213,7 +218,7 @@ Static pi tools and commands wrapping the optional CodeGraph CLI for semantic co
 
 Tools: `codegraph_explore`, `codegraph_node`, `codegraph_search`, `codegraph_callers`, and `codegraph_status`. Tools are registered unconditionally for prefix-cache stability, use `spawn()` with args (`codegraph.cmd` on Windows), auto-sync with a short debounce when `.codegraph/` exists, and truncate LLM-visible output to 32KB while saving oversized full output to a temp file.
 
-Commands: `/codegraph:init`, `/codegraph:sync`, and `/codegraph:status`. Logic remains UI-independent; TUI rendering is installed from `wow-tui/tools.ts` via `setCodeGraphRenderOptions()`.
+Commands: `/codegraph:init`, `/codegraph:sync`, and `/codegraph:status`. Logic remains UI-independent; TUI rendering is resolved from `wow-tui/tools.ts` via `pi.registerToolRenderer()`.
 
 ### btw
 
@@ -221,7 +226,7 @@ Threaded side-channel Q&A for concept explanations and clarification follow-ups 
 
 ### webfetch
 
-Fetches content from a URL and converts to the requested format (markdown, text, or html). Uses Node.js native `fetch` — zero external dependencies. HTML conversion is handled by `convertHTMLToMarkdown()` and `extractTextFromHTML()` from `wow/html.ts`. Uses `createFocusRenderCall("webfetch")` from `wow/renderer.ts` for consistent dim rendering with clickable URL hyperlinks. Returned LLM context is capped at 32KB; full oversized output is saved to a temp file and referenced in the result.
+Fetches content from a URL and converts to the requested format (markdown, text, or html). Uses Node.js native `fetch`; HTML conversion uses `convertHTMLToMarkdown()` and `extractTextFromHTML()` from `wow/html.ts`. Rendering belongs to `wow-tui/tools.ts` renderer resolution, using shared focus helpers and clickable URL hyperlinks. Returned LLM context is capped at 32KB; full oversized output is saved to a temp file and referenced in the result.
 
 ### prefix-cache
 

@@ -28,19 +28,9 @@ const AUTO_SYNC_INTERVAL_MS = 5_000;
 const DEFAULT_LIMIT = 20;
 const MAX_LIMIT = 100;
 
-const CODEGRAPH_RENDER_OPTIONS_KEY = Symbol.for("wow.codegraph.renderOptions");
 const lastSyncByRoot = new Map<string, number>();
 
-type RenderOptionsMap = Record<string, Record<string, any>>;
 type NotifyLevel = "info" | "warning" | "error";
-
-function getCodeGraphRenderOptions(): RenderOptionsMap {
-  return (globalThis as any)[CODEGRAPH_RENDER_OPTIONS_KEY] ?? {};
-}
-
-export function setCodeGraphRenderOptions(renderOptions: RenderOptionsMap): void {
-  (globalThis as any)[CODEGRAPH_RENDER_OPTIONS_KEY] = renderOptions;
-}
 
 function clampLimit(value: number | undefined): number | undefined {
   if (value === undefined || !Number.isFinite(value)) return undefined;
@@ -220,10 +210,6 @@ async function runCommandForUi(ctx: any, args: string[], description: string, ti
   return result;
 }
 
-function renderOptions(toolName: string): Record<string, any> {
-  return getCodeGraphRenderOptions()[toolName] ?? {};
-}
-
 function createExploreTool() {
   const name = "codegraph_explore";
   return defineTool({
@@ -247,7 +233,6 @@ function createExploreTool() {
     async execute(_toolCallId, params, signal, _onUpdate, ctx) {
       return runToolCommand(["explore", params.query], ctx, signal, params.timeout);
     },
-    ...renderOptions(name),
   });
 }
 
@@ -272,7 +257,6 @@ function createNodeTool() {
     async execute(_toolCallId, params, signal, _onUpdate, ctx) {
       return runToolCommand(["node", params.target], ctx, signal, params.timeout);
     },
-    ...renderOptions(name),
   });
 }
 
@@ -299,7 +283,6 @@ function createSearchTool() {
       args.push("--limit", String(limit));
       return runToolCommand(args, ctx, signal, params.timeout);
     },
-    ...renderOptions(name),
   });
 }
 
@@ -322,7 +305,6 @@ function createCallersTool() {
       if (limit !== undefined) args.push("--limit", String(limit));
       return runToolCommand(args, ctx, signal, params.timeout);
     },
-    ...renderOptions(name),
   });
 }
 
@@ -340,7 +322,6 @@ function createStatusTool() {
     async execute(_toolCallId, params, signal, _onUpdate, ctx) {
       return runToolCommand(["status"], ctx, signal, params.timeout, { requireIndex: false, sync: false });
     },
-    ...renderOptions(name),
   });
 }
 

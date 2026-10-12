@@ -69,7 +69,7 @@ import {
   hasAskMetadata,
   type AskBlock,
 } from "./ask.ts";
-import { isSafeCommand } from "../wow/safe.ts";
+import { checkWorkflowToolCall, isReadOnlyMode, readReadOnlyMcpTools } from "./permissions.ts";
 import { registerHumanLedWorkflowTips } from "./tips.ts";
 import {
   WORKFLOW_EXECUTION_SUMMARY_TYPE,
@@ -82,19 +82,6 @@ import {
 } from "./handoff.ts";
 
 const MAX_RESTORED_PLAN_CHARS = 12_000;
-const READ_ONLY_ALLOWED_TOOLS = new Set([
-  "read",
-  "grep",
-  "find",
-  "ls",
-  "bash",
-  "webfetch",
-  "codegraph_explore",
-  "codegraph_node",
-  "codegraph_search",
-  "codegraph_callers",
-  "codegraph_status",
-]);
 
 type ExecutionMode = Extract<WorkflowMode, "execute" | "autoExecute">;
 
@@ -500,10 +487,6 @@ function parseWorkflowInput(text: string): { mode: WorkflowMode; prompt: string 
   return null;
 }
 
-function isReadOnlyMode(mode: TurnMode): boolean {
-  return mode === "discuss" || mode === "plan" || mode === "revise";
-}
-
 function isExecutionMode(mode: TurnMode): mode is ExecutionMode {
   return mode === "execute" || mode === "autoExecute";
 }
@@ -780,29 +763,12 @@ export default function humanLedCodingWorkflowExtension(pi: ExtensionAPI): void 
     if (turnMode === "autoExecute") captureAutoPlanFromSession(pi, ctx);
     if (!isReadOnlyMode(turnMode)) return;
 
-    if (event.toolName === "edit" || event.toolName === "write") {
-      return {
-        block: true,
-        reason: `Human-led workflow: ${event.toolName} is disabled in ${turnMode} mode. Use $ to execute an approved plan.`,
-      };
-    }
-
-    if (!READ_ONLY_ALLOWED_TOOLS.has(event.toolName)) {
-      return {
-        block: true,
-        reason: `Human-led workflow: ${event.toolName} is not allowed in ${turnMode} mode. Allowed tools: read, grep, find, ls, bash(read-only), webfetch, codegraph_*.`,
-      };
-    }
-
-    if (event.toolName === "bash") {
-      const command = String((event.input as any).command ?? "");
-      if (!isSafeCommand(command)) {
-        return {
-          block: true,
-          reason: `Human-led workflow: command blocked in ${turnMode} mode. Only allowlisted read-only commands are permitted.\nBlocked command: ${command}`,
-        };
-      }
-    }
+    return checkWorkflowToolCall(
+      turnMode,
+      event,
+      readReadOnlyMcpTools(),
+      pi.getAllTools().map((tool) => tool.name),
+    );
   });
 
   // message_update — update todo progress as soon as visible [DONE:n] text streams in.

@@ -14,7 +14,6 @@ const FOCUS_IN = "\x1b[I";
 
 type FocusStore = {
   state: TerminalFocusState;
-  cancellationGeneration: number;
 };
 
 const FOCUS_STORE_KEY = Symbol.for("wow.notifications.focus");
@@ -23,7 +22,6 @@ function getStore(): FocusStore {
   const root = globalThis as any;
   return (root[FOCUS_STORE_KEY] ??= {
     state: "unknown",
-    cancellationGeneration: 0,
   }) as FocusStore;
 }
 
@@ -55,12 +53,4 @@ export function setTerminalFocusState(state: TerminalFocusState): void {
 
 export function resetTerminalFocusState(): void {
   getStore().state = "unknown";
-}
-
-export function markWorkingCancellation(): void {
-  getStore().cancellationGeneration++;
-}
-
-export function getWorkingCancellationGeneration(): number {
-  return getStore().cancellationGeneration;
 }

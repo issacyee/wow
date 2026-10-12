@@ -11,7 +11,12 @@ export type WorkflowMode = "discuss" | "plan" | "revise" | "execute" | "autoExec
 
 export const WORKFLOW_CONTEXT_TYPE = "human-led-coding-workflow-context";
 
-const READ_ONLY_TOOLS = "codegraph_explore, codegraph_node, codegraph_search, codegraph_callers, codegraph_status, read, grep, find, ls, bash(read-only allowlist), webfetch";
+const READ_ONLY_TOOLS = "codegraph_explore, codegraph_node, codegraph_search, codegraph_callers, codegraph_status, read, grep, find, ls, bash(read-only allowlist), webfetch, codemode, and globally authorized MCP tools";
+
+const READ_ONLY_TOOL_POLICY = `
+- Codemode may batch or filter exploration; every tools.* call has the same read-only gate as a direct call.
+- Discover MCP tools with codemode's searchTools() or describeTool(); only exact names authorized in global wow.workflow.readOnlyMcpTools may run. Do not use tool_search: it activates tools.
+- Codemode models.* remains available outside the tool gate: it can disclose supplied data to model providers and incur fees. This workflow is not a network or cost sandbox.`;
 
 const ASK_FORMAT_SECTION = `
 
@@ -59,7 +64,7 @@ Rules:
 - Keep investigation proportional to the request: gather enough evidence to understand the relevant current state, not the entire project.
 - Prefer CodeGraph for structural code exploration when an index is available.
 - If the project has no CodeGraph index yet and the CodeGraph CLI is installed, run \`codegraph init\` first to build one, then use the codegraph_* tools to explore. If CodeGraph is unavailable, continue with the other allowed read-only tools.
-- May explore with codegraph_explore, codegraph_node, codegraph_search, codegraph_callers, codegraph_status, read, grep, find, ls, webfetch, and read-only bash.
+- May explore with: ${READ_ONLY_TOOLS}.${READ_ONLY_TOOL_POLICY}
 - Finding facts is your job, never the human's. Do not ask the human for anything the allowed tools can discover. If the investigation target cannot be located from the available context, ask exactly one minimal scoping question, then investigate before asking substantive follow-up questions.
 - Do not block a whole round on missing facts: a fact you cannot settle yet only defers the questions that depend on it. Ask the rest of the current frontier normally and move the dependent questions to a later round.
 - Separate observed facts from inferences and unknowns. Do not assume a need, problem, or solution direction that the evidence and the user's message do not establish.
@@ -93,7 +98,7 @@ Write a new reviewable plan. Replace any active plan.
 
 Rules:${sourceInstruction}
 - Prefer CodeGraph for structural code exploration when an index is available.
-- Explore first when needed: codegraph_explore, codegraph_node, codegraph_search, codegraph_callers, codegraph_status, read, grep, find, ls, webfetch, read-only bash.
+- Explore first when needed with: ${READ_ONLY_TOOLS}.${READ_ONLY_TOOL_POLICY}
 - Ask concise questions if critical info is missing; do not output a plan yet.
 - Do not edit/write files or start implementation.
 - Recommend one approach only unless human input is required.
@@ -231,7 +236,7 @@ Role: revise the current active plan based on the human's feedback.
 
 Rules:
 - There must already be an active plan in the conversation; use the user's feedback to update it.
-- Read relevant code again if needed with: ${READ_ONLY_TOOLS}.
+- Read relevant code again if needed with: ${READ_ONLY_TOOLS}.${READ_ONLY_TOOL_POLICY}
 - Do not edit files or write new files.
 - Output the full revised plan, not a diff or partial update.
 - If critical information is missing, ask concise questions and keep the previous plan active.

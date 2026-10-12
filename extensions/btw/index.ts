@@ -7,8 +7,8 @@
  * back into the main conversation.
  */
 
-import type { Message } from "@earendil-works/pi-ai";
-import { complete } from "@earendil-works/pi-ai";
+import type { Message, ProviderHeaders } from "@earendil-works/pi-ai";
+import { complete } from "@earendil-works/pi-ai/compat";
 import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "@earendil-works/pi-coding-agent";
 
 import {
@@ -247,7 +247,7 @@ function questionWithoutInlineTopic(question: string): string {
   return inline ? inline[2].trim() : question.trim();
 }
 
-async function getAuth(ctx: ExtensionCommandContext): Promise<{ apiKey: string; headers?: Record<string, string> } | undefined> {
+async function getAuth(ctx: ExtensionCommandContext): Promise<{ apiKey: string; headers?: ProviderHeaders } | undefined> {
   if (!ctx.model) {
     notify(ctx, "No model selected", "error");
     return undefined;

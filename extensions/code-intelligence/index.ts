@@ -9,7 +9,7 @@ import { createHash } from "node:crypto";
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 import type { Message, Model } from "@earendil-works/pi-ai";
-import { complete } from "@earendil-works/pi-ai";
+import { complete } from "@earendil-works/pi-ai/compat";
 import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { buildLanguageInstruction } from "../wow/locale.ts";
 import { collectLocalChanges, findGitRoot, hashDependencyFiles } from "../wow/git.ts";

@@ -53,17 +53,7 @@ async function truncateForContext(output: string): Promise<{ text: string; trunc
 
 // ── Tool definition ──
 
-const WEBFETCH_RENDER_OPTIONS_KEY = Symbol.for("wow.webfetch.renderOptions");
-
-function getWebfetchRenderOptions(): Record<string, any> {
-  return (globalThis as any)[WEBFETCH_RENDER_OPTIONS_KEY] ?? {};
-}
-
-export function setWebfetchRenderOptions(renderOptions: Record<string, any>): void {
-  (globalThis as any)[WEBFETCH_RENDER_OPTIONS_KEY] = renderOptions;
-}
-
-export function createWebfetchTool(renderOptions: Record<string, any> = getWebfetchRenderOptions()) {
+export function createWebfetchTool() {
   return defineTool({
   name: "webfetch",
   label: "WebFetch",
@@ -258,7 +248,6 @@ export function createWebfetchTool(renderOptions: Record<string, any> = getWebfe
     };
   },
 
-  ...renderOptions,
   });
 }
 

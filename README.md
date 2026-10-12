@@ -9,7 +9,8 @@ A pi package bundling essential features for daily AI coding workflows.
 Wow is a [pi](https://pi.dev) package. Pi is a terminal coding agent/harness
 that can be extended with TypeScript extensions, skills, prompt templates, and
 themes. Pi packages bundle those resources so they can be installed from npm,
-git, or local paths.
+git, or local paths. **Wow requires pi 1.1.0 or later in the 1.x series**; older
+APIs are not supported.
 
 Install pi first if you do not already have it:
 
@@ -60,7 +61,7 @@ when a prefix is used.
 | `$ <text>`  | Execute the current active plan with extra constraints         |
 
 - **Human-led control**: ordinary input remains free-form; plan feedback requires `?!`; execution uses `$`, or `?$` when the discussion is clear enough to plan and execute immediately
-- **Read-only discussion/planning/revision**: these modes allow `codegraph_*`, `read`, `grep`, `find`, `ls`, safe read-only `bash`, and `webfetch`, while blocking `edit`, `write`, and unsafe commands
+- **Read-only discussion/planning/revision**: these modes allow `codegraph_*`, `read`, `grep`, `find`, `ls`, safe read-only `bash`, `webfetch`, and full `codemode`; direct and nested `tools.*` calls share the same gate. Writes, unsafe commands, unknown tools, and `tool_search` (which activates tools) are blocked. MCP calls require global exact-name authorization; `readOnlyHint` alone grants nothing.
 - **Rounds over a design tree**: discuss mode interviews in rounds. It treats the subject as a design tree, asks the whole current *frontier* (every decision whose prerequisites are settled) in one round, waits for answers, then recomputes the frontier for the next round; questions depending on another open question move to a later round. Each question carries a visible `➡️` recommendation and is worded so answering "yes" accepts it, and the visible questions/options/recommendations must match the hidden JSON block. The human owns the scope, so a round answered with unconditional agreement is a weak round and "I don't know" is a valid answer.
 - **Escape hatches**: missing facts only defer the questions that depend on them instead of stalling the whole round; questions talking cannot settle (how something should look, feel, or behave) stop the interview in favor of a throwaway prototype; growing rounds mean the scope is too large, so it proposes splitting the work first. The discussion ends when the frontier is empty — every branch visited, nothing left as a silent assumption — after which it summarizes the shared understanding and waits for human confirmation.
 - **Evidence-first aligned discussion**: when the request has investigable factual context, discuss mode first performs proportional read-only research into relevant local code, configuration, documentation, Git state, and structural relationships; it uses external sources only when local evidence is insufficient. Before asking decision-relevant, non-dependent questions, it briefly presents the observed current state, the gap to the user's goal, and the remaining unknowns. It does not ask for discoverable facts or force questions when none are needed, and it proposes a direction without turning it into a plan unless `??` is used.
@@ -68,6 +69,52 @@ when a prefix is used.
 - **Review Handoff**: a fully completed execution emits an implementing-agent handoff with intent, behavioral changes, execution delta, existing-worktree interactions, impact surface, observed validation evidence, risks/unknowns, and a suggested human review path; it is explicitly not an independent review
 - **Prefix-cache friendly**: the extension never mutates the system prompt, never switches active tools, filters stale workflow context messages from provider context, and stores state in custom entries outside LLM context
 - **UI-independent logic**: workflow state is exposed from `state.ts`; editor colors, status, and todo widgets are presented by `wow-tui`
+
+### Tool Activation and Read-Only MCP Authorization
+
+Wow's renderers do not enable tools or replace native tool definitions. Pi's default
+built-in selection is `read`, `bash`, `edit`, and `write`; enable optional tools
+through official `defaultTools` settings or CLI `--tools`, not workflow mode changes:
+
+```json
+{
+  "defaultTools": ["+grep", "+find", "+ls", "+codemode"]
+}
+```
+
+For one run, use `pi --tools +grep,+find,+ls,+codemode`. Plain names replace the
+selection instead of adding to it. MCP exposure can also activate `codemode` or
+`tool_search`; Wow never activates either. In read-only modes use Codemode's
+`searchTools()` / `describeTool()` for discovery without activating tools.
+
+Only the global agent-directory `settings.json` (normally `~/.pi/agent/settings.json`,
+or the directory selected by `PI_CODING_AGENT_DIR`) can authorize MCP calls:
+
+```json
+{
+  "wow": {
+    "workflow": {
+      "readOnlyMcpTools": ["mcp__docs__search"]
+    }
+  }
+}
+```
+
+The default is empty. Use the exact registered identifier shown by pi, including
+any sanitization/hash suffix; wildcard entries and malformed values grant no access.
+Project `.pi/settings.json` cannot broaden this list. Registration is also required:
+the list does not connect or enable servers. The shared helpers `list_mcp_resources`,
+`list_mcp_resource_templates`, and `read_mcp_resource` need separate exact entries;
+authorized resource helpers cover all enabled, non-hidden resource servers, not
+just one server. Verify behavior and server identity before granting access: a
+project MCP configuration can replace a global server with the same name.
+
+**Permission boundary:** Codemode's QuickJS sandbox has no direct filesystem,
+network, or Node APIs. Its `tools.*` calls still pass through Wow's gate, but full
+`models.*` remains available: `models.classify()` and `models.generateImages()` do
+not emit `tool_call`, can send data to providers, incur costs, and produce temporary
+image files. Read-only mode is a tool permission policy, not a network, disclosure,
+cost, or OS sandbox. These model-call boundaries are intentionally accepted.
 
 ### Code Intelligence — `/understand` and `/review`
 
@@ -175,6 +222,8 @@ Sends a native desktop notification when a full pi Working cycle settles,
 regardless of whether the terminal is focused. The timer spans automatic retries,
 auto-compaction recovery, and queued continuations, so one user task produces at
 most one notice. Runs shorter than 10 seconds and user-cancelled runs are ignored.
+Cancellation is determined by pi's authoritative `agent_settled.aborted`, including
+SDK/RPC aborts, rather than raw `Esc` input or the last assistant message alone.
 
 Notifications identify the source without exposing assistant output. A typical
 completion contains the project, shortened path, Git branch, deterministic session
@@ -233,17 +282,18 @@ It owns package-level singleton TUI resources:
 
 - **Footer compositor**: custom two-line footer with clickable CWD, git branch, `model [provider] • thinking level`, context usage bar, token/cache/cost/billing stats, and extension statuses
 - **Composite editor**: `π` top-border label, workflow prefix border colors, Chinese IME full-width prefix conversion (`？` `！` `￥` → `?` `!` `$`), and prompt-editor `Ctrl+R` History Peek
-- **Terminal identity and focus**: titles the tab as `π project [S-XXXX · I-XXXX]`, retains focus-in/focus-out reporting for TUI compatibility, and intercepts Working input for `Esc` cancellation detection while keeping escape-sequence ownership in the visual shell
+- **Terminal identity and focus**: titles the tab as `π project [S-XXXX · I-XXXX]` and retains focus-in/focus-out reporting for TUI compatibility; cancellation belongs to pi's native lifecycle
 - **History Peek**: search the current branch's visible chat history while composing a prompt. Matches are highlighted, `Enter` pins nearby context above the editor for reference, `Ctrl+Q` clears the pinned peek from either the prompt editor or the search overlay, and no history text is inserted into the prompt or provider context
 - **Workflow presenter**: status indicator and todo widget based on workflow state
 - **Working tips carousel**: while the agent is working, concise usage tips rotate in the Working message (`Working 0ms • Tip: ...`) without entering the model context
 - **BTW message rendering**: custom rendering for `/btw:*` side-channel messages
 - **Code-intelligence rendering**: layered understanding cards, independent review findings/dispositions, and Review Handoff navigation cards
-- **Focus-style tool rendering**: built-in tools (`read`, `bash`, `edit`, `write`, `grep`, `find`, `ls`) render as single dim-text lines with hidden result previews
+- **Focus-style tool rendering**: built-in tools (`read`, `bash`, `edit`, `write`, `grep`, `find`, `ls`) render as single dim-text lines with hidden successful result previews. Renderer-only resolvers preserve native execution, schemas, structured results, prompt metadata, and activation; expanded/error output delegates to native renderers with `outputPad` and timing preserved
 - **Config UI**: `/config:global` and `/config:project` open scoped interactive settings UIs for model/thinking defaults, Working notifications, common settings (theme, transport, queues, retry, compaction, terminal/editor, shell/session, warnings), and resource path/source arrays (`extensions`, `skills`, `prompts`, `themes`, `packages`). Press `Ctrl+U` to unset entries at the current scope and fall back to inherited/global or built-in defaults; `Esc` returns or exits menus. Global model/thinking selections are written to the global settings used by new pi sessions; project selections are applied immediately and saved as project overrides that take precedence at startup.
 
-Custom tools can reuse the same dim rendering via shared utilities from `wow/renderer.ts`
-(`createFocusRenderCall`, `focusRenderResult`).
+Custom tools use the same dim rendering through `wow-tui` renderer resolution and
+shared utilities from `wow/renderer.ts` (`createFocusRenderCall`, `focusRenderResult`).
+Logic extensions do not install renderers.
 
 #### Viego Theme and Wow Theme Variables
 
@@ -369,7 +419,7 @@ it serves purely as an import source for common functions.
 | `shell.ts`    | `execOrNull`, `execWithError`                                                                                                       | git-commit                        |
 | `safe.ts`     | `isSafeCommand`                                                                                                                     | human-led-coding-workflow         |
 | `git.ts`      | read-only worktree snapshots, local-change collection, dependency fingerprints                                                     | HLCW, code-intelligence           |
-| `settings.ts` | `readWowSetting`                                                                                                                    | shared settings consumers         |
+| `settings.ts` | `readWowSetting`, `readGlobalWowSetting`                                                                                            | shared settings / global permissions |
 | `tips.ts`     | `registerWowTips`, `getWowTips`, `clearWowTips`                                                                                     | feature tips, wow-tui working     |
 
 Each sub-module can be imported directly by relative path:
@@ -446,6 +496,7 @@ wow/
 │   ├── human-led-coding-workflow/ # ?/??/?!/?$/$ human-led workflow logic
 │   │   ├── index.ts         # Prefix routing, context injection, tool gates, state persistence
 │   │   ├── prompts.ts       # Byte-stable workflow prompts
+│   │   ├── permissions.ts   # Shared direct/nested tool gates and global MCP authorization
 │   │   ├── plan.ts          # Plan detection, extraction, [DONE:n] tracking
 │   │   ├── ask.ts           # discuss :::ask block parser, answer formatter, panel trigger singleton
 │   │   ├── state.ts         # UI-independent workflow state store

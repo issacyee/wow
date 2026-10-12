@@ -14,6 +14,21 @@ import {
   type WorkflowReviewHandoffDetails,
 } from "../human-led-coding-workflow/types.ts";
 
+// pi's Box preserves child lines without clipping or shrinking its margins.
+// Keep summary cards within the terminal even at one-cell widths and with CJK.
+class WorkflowSummaryBox extends Box {
+  private horizontalPadding = 1;
+
+  override render(width: number): string[] {
+    const padding = width >= 3 ? 1 : 0;
+    if (padding !== this.horizontalPadding) {
+      this.setPaddingX(padding);
+      this.horizontalPadding = padding;
+    }
+    return super.render(Math.max(1, width)).map((line) => truncateToWidth(line, Math.max(0, width), ""));
+  }
+}
+
 function todoPrefix(item: TodoItem): string {
   return item.completed ? "[✓] " : "[ ] ";
 }
@@ -96,7 +111,7 @@ function section(title: string, value: string, theme: any, width: number): strin
 export function registerWorkflowSummaryRendering(pi: ExtensionAPI): void {
   pi.registerMessageRenderer<WorkflowExecutionSummaryDetails>(WORKFLOW_EXECUTION_SUMMARY_TYPE, (message, _options, theme) => {
     const details = legacyDetails(message.details);
-    const box = new Box(1, 1, (text: string) => theme.bg("customMessageBg", text));
+    const box = new WorkflowSummaryBox(1, 1, (text: string) => theme.bg("customMessageBg", text));
 
     box.addChild({
       invalidate() { },
@@ -115,7 +130,7 @@ export function registerWorkflowSummaryRendering(pi: ExtensionAPI): void {
   pi.registerMessageRenderer<WorkflowReviewHandoffDetails>(WORKFLOW_REVIEW_HANDOFF_TYPE, (message, { expanded }, theme) => {
     const details = handoffDetails(message.details);
     const content = details.content;
-    const box = new Box(1, 1, (text: string) => theme.bg("customMessageBg", text));
+    const box = new WorkflowSummaryBox(1, 1, (text: string) => theme.bg("customMessageBg", text));
     box.addChild({
       invalidate() { },
       render(width: number): string[] {

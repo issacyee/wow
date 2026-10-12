@@ -60,10 +60,10 @@ export function readWowSetting(path: string[], options?: { cwd?: string }): unkn
     const projectValue = getPathValue(project, path);
     if (projectValue !== undefined) return projectValue;
   }
-  const global = readJsonFile(globalSettingsPath());
-  if (global !== undefined) {
-    const globalValue = getPathValue(global, path);
-    if (globalValue !== undefined) return globalValue;
-  }
-  return undefined;
+  return readGlobalWowSetting(path);
+}
+
+/** Read only the agent-directory settings; project settings cannot grant permissions. */
+export function readGlobalWowSetting(path: string[]): unknown {
+  return getPathValue(readJsonFile(globalSettingsPath()), path);
 }
